@@ -1,0 +1,224 @@
+[
+{
+  "model": "custom_auth.user",
+  "pk": 1,
+  "fields": {
+    "password": "pbkdf2_sha256$1200000$qHi41pBS6WJ8rMWXLXgqAZ$C3YNRQMsglAojkEz4T5XXr3Mb7D+oo9hwVTIj2XuoAg=",
+    "last_login": "2026-01-12T08:12:27.266Z",
+    "is_superuser": true,
+    "username": "admin",
+    "first_name": "",
+    "last_name": "",
+    "is_staff": true,
+    "is_active": true,
+    "date_joined": "2026-01-12T08:12:00.818Z",
+    "email": "whiterebel1012@proton.me",
+    "role": "COLLEGE_ADMIN",
+    "duo_username": "whiterebel1012",
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 2,
+  "fields": {
+    "password": "academic@123",
+    "last_login": "2026-01-04T08:16:17Z",
+    "is_superuser": false,
+    "username": "Academic_Coordinator01",
+    "first_name": "Academic",
+    "last_name": "Coordinator",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-12T08:14:41Z",
+    "email": "timeeeeeeeepusssss@gmail.com",
+    "role": "ACADEMIC_COORDINATOR",
+    "duo_username": "timeuser",
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": [
+      1
+    ]
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 3,
+  "fields": {
+    "password": "pbkdf2_sha256$1200000$nm9LYjBOK0ctOncQij9aQk$7RJi89EN9kjSsBK2Nl3GWAC9VN+BKBCrGXlPoriYOFk=",
+    "last_login": "2026-01-04T08:19:03Z",
+    "is_superuser": false,
+    "username": "campus_admin01",
+    "first_name": "campus",
+    "last_name": "admin",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-12T08:18:16Z",
+    "email": "karthansai820@gmail.com",
+    "role": "COLLEGE_ADMIN",
+    "duo_username": null,
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 4,
+  "fields": {
+    "password": "faculty@123",
+    "last_login": "2026-01-12T08:19:21Z",
+    "is_superuser": false,
+    "username": "faculty_01",
+    "first_name": "faculty",
+    "last_name": "f",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-12T08:19:13Z",
+    "email": "2411CS040084@mallareddyuniversity.ac.in",
+    "role": "FACULTY",
+    "duo_username": null,
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 5,
+  "fields": {
+    "password": "pbkdf2_sha256$1200000$EE8KwkLwYUvXlpo5WTupiI$AB/X5M2H+AbBcshi6LmuqqGZL0dp14NNM3nz2nPBFjY=",
+    "last_login": null,
+    "is_superuser": false,
+    "username": "admin1",
+    "first_name": "",
+    "last_name": "",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-12T09:26:32.876Z",
+    "email": "admin@example.com",
+    "role": "COLLEGE_ADMIN",
+    "duo_username": null,
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 6,
+  "fields": {
+    "password": "pbkdf2_sha256$870000$TGBjaILsS8rJRUX9GyhSuf$uVO8EljA6m527xfyCmpVNqvewz0htcli3tkSvbEUWxU=",
+    "last_login": null,
+    "is_superuser": false,
+    "username": "coordinator",
+    "first_name": "",
+    "last_name": "",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-12T10:28:09.327Z",
+    "email": "shreyaa.patra.013@gmail.com",
+    "role": "ACADEMIC_COORDINATOR",
+    "duo_username": "shreyaa1",
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 7,
+  "fields": {
+    "password": "pbkdf2_sha256$870000$WbfQodIeAfUaWP70Me8xL6$4hiIs+Kimvee26TAc/mCj9oNV0KF5TRP8iU2/7Wor40=",
+    "last_login": null,
+    "is_superuser": false,
+    "username": "sai1",
+    "first_name": "",
+    "last_name": "",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-12T10:28:12Z",
+    "email": "saikarthan2@gmail.com",
+    "role": "COLLEGE_ADMIN",
+    "duo_username": "sai1",
+    "is_password_reset_done": false,
+    "password_last_changed_at": "2026-01-19T08:52:42.506Z",
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 8,
+  "fields": {
+    "password": "pbkdf2_sha256$870000$O1VY4s0J2D9vlVjZGUyzi5$LkaIuBhl5sdWhkgLzP6fxIyhVpBxOlyUGFLqmcYxymo=",
+    "last_login": null,
+    "is_superuser": false,
+    "username": "college-admin",
+    "first_name": "",
+    "last_name": "",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-12T10:28:15Z",
+    "email": "sreecharan.0811@gmail.com",
+    "role": "COLLEGE_ADMIN",
+    "duo_username": "college-admin",
+    "is_password_reset_done": false,
+    "password_last_changed_at": "2026-01-13T11:48:51.125Z",
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 9,
+  "fields": {
+    "password": "pbkdf2_sha256$870000$8Iz8K1aetngVrB3pwnRcIF$Z5O6WbvVO2cz/ILeAQJQ8Vo4Nq3Iey8PfQ7kClMl2po=",
+    "last_login": "2026-01-21T06:38:56.379Z",
+    "is_superuser": true,
+    "username": "saika",
+    "first_name": "",
+    "last_name": "",
+    "is_staff": true,
+    "is_active": true,
+    "date_joined": "2026-01-12T10:58:10.682Z",
+    "email": "sai@gmail.com",
+    "role": "STUDENT",
+    "duo_username": null,
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "custom_auth.user",
+  "pk": 10,
+  "fields": {
+    "password": "pbkdf2_sha256$1200000$1OpcAFrMbeVhBu3L7odmC1$nbK1hTyFWpBvAOJBw56EIDG72183+tI7TQII1DJkQ4U=",
+    "last_login": null,
+    "is_superuser": false,
+    "username": "debug_admin",
+    "first_name": "",
+    "last_name": "",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2026-01-13T08:25:27.230Z",
+    "email": "debug_admin@test.com",
+    "role": "COLLEGE_ADMIN",
+    "duo_username": null,
+    "is_password_reset_done": false,
+    "password_last_changed_at": null,
+    "groups": [],
+    "user_permissions": []
+  }
+}
+]

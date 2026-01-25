@@ -1,0 +1,21 @@
+# Django
+*.log
+local_settings.py
+db.sqlite3
+media/
+
+# Environment variables
+.env
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

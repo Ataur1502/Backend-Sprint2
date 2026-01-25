@@ -1,0 +1,74 @@
+from rest_framework import viewsets, status
+from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from .models import AcademicCalendar
+from .serializers import AcademicCalendarSerializer
+from .permissions import IsCampusAdmin
+
+class AcademicCalendarViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Academic Calendar lifecycle:
+    - GET: List all calendars
+    - POST: Create from metadata + Excel upload
+    - DELETE: Remove calendar and associated events
+    """
+    queryset = AcademicCalendar.objects.all().order_by('-created_at')
+    serializer_class = AcademicCalendarSerializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+    permission_classes = [IsCampusAdmin]
+    lookup_field = 'calendar_id'
+
+    def get_queryset(self):
+        # Optional filtering by school/degree/regulation
+        queryset = super().get_queryset()
+        school_id = self.request.query_params.get('school_id')
+        if school_id:
+            queryset = queryset.filter(school_id=school_id)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            self.perform_create(serializer)
+            return Response({
+                "message": "Academic Calendar created successfully",
+                "data": serializer.data
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+from django.http import HttpResponse
+from rest_framework.views import APIView
+from io import BytesIO
+import openpyxl
+
+class CalendarTemplateView(APIView):
+    """
+    Returns a standard Excel template for Academic Calendar creation.
+    """
+    authentication_classes = []
+    permission_classes = []
+    
+    def get(self, request):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Calendar Template"
+        
+        # Headers
+        headers = ['Type (Instruction/Holiday/Exam)', 'Name', 'Start Date (YYYY-MM-DD)', 'End Date (YYYY-MM-DD)', 'Description']
+        ws.append(headers)
+        
+        # Sample data
+        ws.append(['Instruction', 'Odd Semester Classes', '2025-08-01', '2025-11-30', 'Regular instruction period'])
+        ws.append(['Holiday', 'Independence Day', '2025-08-15', '2025-08-15', 'National holiday'])
+        ws.append(['Exam', 'End Semester Exams', '2025-12-05', '2025-12-25', 'Final examinations'])
+        
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        
+        response = HttpResponse(
+            buffer.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename=Academic_Calendar_Template.xlsx'
+        return response
