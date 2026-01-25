@@ -178,3 +178,35 @@ class TimeTableTemplateSerializer(serializers.ModelSerializer):
                 TimeSlot.objects.create(template=instance, **slot)
         
         return instance
+
+from .models import Section
+
+class SectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Section
+        fields = [
+            'section_id', 'name', 'school', 'degree', 'department', 
+            'regulation', 'batch', 'semester', 'capacity', 
+            'is_active', 'created_at'
+        ]
+        read_only_fields = ['section_id', 'created_at']
+
+    def validate(self, data):
+        # Unique check: Name + Regulation + Batch + Department + Semester
+        name = data.get('name')
+        regulation = data.get('regulation')
+        batch = data.get('batch')
+        department = data.get('department')
+        semester = data.get('semester')
+        
+        if Section.objects.filter(
+            name=name, regulation=regulation, batch=batch, 
+            department=department, semester=semester
+        ).exists():
+            if self.instance and self.instance.name == name:
+                pass # Allow update if it's the same instance
+            else:
+                raise serializers.ValidationError({
+                    "non_field_errors": ["A section with this name already exists for the selected academic context."]
+                })
+        return data

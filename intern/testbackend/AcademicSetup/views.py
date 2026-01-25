@@ -91,3 +91,52 @@ class TimeTableTemplateViewSet(viewsets.ModelViewSet):
         if department_id:
             queryset = queryset.filter(department_id=department_id)
         return queryset
+
+from .models import Section
+from .serializers import SectionSerializer
+
+class SectionViewSet(viewsets.ModelViewSet):
+    """
+    Manages user-created sections (e.g. A, B, Section 1).
+    Ensures uniqueness per academic context via serializer validation.
+    """
+    queryset = Section.objects.all().order_by('name')
+    serializer_class = SectionSerializer
+    permission_classes = [IsCampusAdmin]
+    lookup_field = 'section_id'
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Optional filters for dropdowns/management
+        department_id = self.request.query_params.get('department_id')
+        semester_id = self.request.query_params.get('semester_id')
+        batch = self.request.query_params.get('batch')
+
+        if department_id:
+            queryset = queryset.filter(department_id=department_id)
+        if semester_id:
+            queryset = queryset.filter(semester_id=semester_id)
+        if batch:
+            queryset = queryset.filter(batch=batch)
+            
+        return queryset
+
+from .models import CalendarEvent
+from .serializers import CalendarEventSerializer
+
+class CalendarEventViewSet(viewsets.ModelViewSet):
+    """
+    Manages individual calendar events (Holidays, Exams, Instructions).
+    Used for the interactive "Holidays" tab.
+    """
+    queryset = CalendarEvent.objects.all().order_by('start_date')
+    serializer_class = CalendarEventSerializer
+    permission_classes = [IsCampusAdmin]
+    lookup_field = 'event_id'
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        calendar_id = self.request.query_params.get('calendar_id')
+        if calendar_id:
+            queryset = queryset.filter(calendar_id=calendar_id)
+        return queryset

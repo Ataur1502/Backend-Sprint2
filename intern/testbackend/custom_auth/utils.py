@@ -91,7 +91,13 @@ def _get_duo_handles(user):
     
     candidates.append(user.username)
     
-    # Sort and remove duplicates from the list of handles
+    # Process candidates: normalize to lowercase and keep original
+    final_handles = []
+    for c in filter(None, candidates):
+        final_handles.append(c)
+        final_handles.append(c.lower())
+    
+    # Return unique list maintaining order
     return list(dict.fromkeys(final_handles))
 def send_duo_push(email):
     """Initiate a Duo Push for the user identified by email.

@@ -98,3 +98,33 @@ class TimeSlot(models.Model):
 
     def __str__(self):
         return f"{self.day} - Slot {self.slot_order} ({self.start_time} - {self.end_time})"
+
+class Section(models.Model):
+    """
+    Represents a classroom section (e.g. 'A', 'B') linked to a specific academic context.
+    """
+    section_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=50, help_text="Section Name (e.g. A, B, Section 1)")
+    
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="sections")
+    degree = models.ForeignKey(Degree, on_delete=models.CASCADE, related_name="sections")
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="sections")
+    regulation = models.ForeignKey(Regulation, on_delete=models.CASCADE, related_name="sections")
+    batch = models.CharField(max_length=50)
+    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name="sections")
+    
+    capacity = models.PositiveIntegerField(default=60, help_text="Max student capacity")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['regulation', 'batch', 'department', 'semester', 'name'],
+                name='unique_section_per_context'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.department.dept_code} - {self.batch})"

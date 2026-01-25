@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock } from 'lucide-react';
+import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock, PartyPopper } from 'lucide-react';
 
 const SlotManager = ({ formData, setFormData }) => {
     const slots = formData.slots || [];
@@ -63,6 +63,156 @@ const SlotManager = ({ formData, setFormData }) => {
                 ))}
                 {slots.length === 0 && <div className="text-center py-4 bg-white/50 border border-dashed border-gray-200 rounded-lg text-xs text-gray-400 italic">No slots added yet.</div>}
             </div>
+        </div>
+    );
+};
+
+const HolidayManager = () => {
+    const [calendars, setCalendars] = useState([]);
+    const [selectedCalendarId, setSelectedCalendarId] = useState('');
+    const [events, setEvents] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [viewDate, setViewDate] = useState(new Date());
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedDate, setSelectedDate] = useState(null);
+    const [reason, setReason] = useState('');
+
+    useEffect(() => {
+        api.get('/academic/calendars/').then(res => setCalendars(res.data.results || res.data)).catch(console.error);
+    }, []);
+
+    const fetchEvents = async (id) => {
+        if (!id) return;
+        setLoading(true);
+        try {
+            const res = await api.get(`/academic/events/?calendar_id=${id}`);
+            setEvents(res.data.results || res.data);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchEvents(selectedCalendarId);
+    }, [selectedCalendarId]);
+
+    const handleDateClick = (dayStr) => {
+        if (!selectedCalendarId) {
+            alert("Please select a calendar first.");
+            return;
+        }
+        setSelectedDate(dayStr);
+        // Check if event already exists
+        const existing = events.find(e => e.start_date === dayStr);
+        setReason(existing ? existing.description : '');
+        setIsModalOpen(true);
+    };
+
+    const handleSaveHoliday = async () => {
+        try {
+            await api.post('/academic/events/', {
+                calendar: selectedCalendarId,
+                type: 'HOLIDAY',
+                name: reason || 'Holiday',
+                description: reason,
+                start_date: selectedDate,
+                end_date: selectedDate
+            });
+            setIsModalOpen(false);
+            fetchEvents(selectedCalendarId);
+        } catch (err) {
+            console.error(err);
+            alert("Failed to save holiday");
+        }
+    };
+
+    const renderCalendarGrid = () => {
+        const year = viewDate.getFullYear();
+        const month = viewDate.getMonth();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDay = new Date(year, month, 1).getDay();
+
+        const days = [];
+        for (let i = 0; i < firstDay; i++) days.push(null);
+        for (let i = 1; i <= daysInMonth; i++) days.push(i);
+
+        return (
+            <div className="grid grid-cols-7 gap-1 mt-4">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                    <div key={d} className="text-center text-xs font-bold text-gray-400 py-2">{d}</div>
+                ))}
+                {days.map((day, idx) => {
+                    if (!day) return <div key={idx} />;
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const event = events.find(e => e.start_date === dateStr);
+                    const isHoliday = event && event.type === 'HOLIDAY';
+
+                    return (
+                        <div
+                            key={idx}
+                            onClick={() => handleDateClick(dateStr)}
+                            className={`h-16 border rounded cursor-pointer p-1 text-xs hover:bg-blue-50 transition-colors relative
+                                ${isHoliday ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100'}
+                            `}
+                        >
+                            <span className="font-bold text-gray-700">{day}</span>
+                            {event && (
+                                <div className={`text-[9px] mt-1 p-1 rounded leading-tight ${isHoliday ? 'text-red-600 bg-red-100' : 'text-blue-600 bg-blue-100'}`}>
+                                    {event.name}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    return (
+        <div className="p-6">
+            <div className="flex gap-4 mb-4 items-end">
+                <div className="flex-1">
+                    <label className="label text-xs uppercase font-bold text-gray-400">Select Academic Calendar</label>
+                    <select
+                        className="input-field"
+                        value={selectedCalendarId}
+                        onChange={(e) => setSelectedCalendarId(e.target.value)}
+                    >
+                        <option value="">-- Choose Calendar --</option>
+                        {calendars.map(c => <option key={c.calendar_id} value={c.calendar_id}>{c.name} ({c.batch})</option>)}
+                    </select>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="btn btn-outline px-3">Prev</button>
+                    <div className="px-4 py-2 font-bold text-gray-700 min-w-[150px] text-center">
+                        {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                    </div>
+                    <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="btn btn-outline px-3">Next</button>
+                </div>
+            </div>
+
+            {loading ? <div className="text-center py-10">Loading events...</div> : renderCalendarGrid()}
+
+            {isModalOpen && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl">
+                        <h3 className="text-lg font-bold mb-4">Mark Holiday: {selectedDate}</h3>
+                        <label className="block text-xs font-bold text-gray-400 mb-1">Reason / Description</label>
+                        <textarea
+                            className="input-field h-24 resize-none"
+                            value={reason}
+                            onChange={e => setReason(e.target.value)}
+                            placeholder="e.g. Gandhi Jayanti"
+                        />
+                        <div className="flex justify-end gap-2 mt-4">
+                            <button onClick={() => setIsModalOpen(false)} className="btn btn-outline text-gray-500">Cancel</button>
+                            <button onClick={handleSaveHoliday} className="btn btn-primary">Mark as Holiday</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -165,11 +315,22 @@ const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id',
             fetchData();
         } catch (err) {
             console.error(err);
-            const detail = err.response?.data?.detail ||
-                err.response?.data?.non_field_errors?.[0] ||
-                (err.response?.data?.excel_file ? `Excel Error: ${err.response.data.excel_file[0]}` : null) ||
-                'Failed to save. Check all fields.';
-            alert(detail);
+            let message = 'Failed to save.';
+            if (err.response?.data) {
+                const data = err.response.data;
+                if (data.detail) {
+                    message = data.detail;
+                } else if (data.non_field_errors) {
+                    message = data.non_field_errors[0];
+                } else {
+                    // Collect field errors
+                    const fieldErrors = Object.entries(data)
+                        .map(([key, msg]) => `${key}: ${Array.isArray(msg) ? msg[0] : msg}`)
+                        .join('\n');
+                    if (fieldErrors) message = `Validation Error:\n${fieldErrors}`;
+                }
+            }
+            alert(message);
         }
     };
 
@@ -381,6 +542,18 @@ export default function Dashboard() {
                         onClick={() => setActiveTab('timetable-template')}
                         icon={Clock}
                         label="Time Table Templates"
+                    />
+                    <TabButton
+                        active={activeTab === 'sections'}
+                        onClick={() => setActiveTab('sections')}
+                        icon={LayoutDashboard}
+                        label="Sections"
+                    />
+                    <TabButton
+                        active={activeTab === 'holidays'}
+                        onClick={() => setActiveTab('holidays')}
+                        icon={PartyPopper}
+                        label="Holidays"
                     />
                 </div>
 
@@ -625,6 +798,52 @@ export default function Dashboard() {
                             ]}
                             renderExtra={({ formData, setFormData }) => <SlotManager formData={formData} setFormData={setFormData} />}
                         />
+                    )}
+                    {activeTab === 'sections' && (
+                        <DataManager
+                            title="Section Management"
+                            endpoint="/academic/sections/"
+                            icon={LayoutDashboard}
+                            idField="section_id"
+                            displayField="name"
+                            fields={[
+                                { name: 'name', label: 'Section Name', required: true, type: 'text' },
+                                { name: 'capacity', label: 'Capacity', required: true, type: 'number', defaultValue: 60 },
+                                {
+                                    name: 'school', label: 'School Mapping', type: 'select', resource: '/create/schools/',
+                                    idKey: 'school_id', displayKey: 'school_name', required: true
+                                },
+                                {
+                                    name: 'degree', label: 'Degree Mapping', type: 'select', resource: '/create/degrees/',
+                                    idKey: 'degree_id', displayKey: 'degree_name', required: true
+                                },
+                                {
+                                    name: 'department', label: 'Department Mapping', type: 'select', resource: '/create/departments/',
+                                    idKey: 'dept_id', displayKey: 'dept_name', required: true
+                                },
+                                {
+                                    name: 'regulation', label: 'Regulation Mapping', type: 'select', resource: '/create/regulations/',
+                                    idKey: 'regulation_id', displayKey: 'regulation_code', required: true
+                                },
+                                { name: 'batch', label: 'Batch / Academic Year', required: true },
+                                {
+                                    name: 'semester', label: 'Semester Mapping', type: 'select', resource: '/create/semesters/',
+                                    idKey: 'sem_id', displayKey: 'sem_name', required: true
+                                },
+                                { name: 'is_active', label: 'Active?', type: 'checkbox', required: false, defaultValue: true },
+                            ]}
+                        />
+                    )}
+                    {activeTab === 'holidays' && (
+                        <div className="bg-white rounded-xl shadow-sm border border-[var(--border)] overflow-hidden min-h-[600px]">
+                            <div className="p-6 border-b border-[var(--border)] flex gap-3 items-center bg-gray-50">
+                                <div className="bg-blue-100 p-2 rounded-lg text-[var(--primary)]">
+                                    <PartyPopper size={24} />
+                                </div>
+                                <h2 className="text-lg font-bold text-gray-800">Holiday Management</h2>
+                            </div>
+                            <HolidayManager />
+                        </div>
                     )}
                 </motion.div>
             </main>
