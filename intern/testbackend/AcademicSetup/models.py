@@ -51,3 +51,50 @@ class CalendarEvent(models.Model):
 
     def __str__(self):
         return f"{self.type}: {self.name} ({self.start_date} - {self.end_date})"
+
+class TimeTableTemplate(models.Model):
+    template_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255, unique=True)
+    
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="timetable_templates")
+    degree = models.ForeignKey(Degree, on_delete=models.CASCADE, related_name="timetable_templates")
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="timetable_templates")
+    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name="timetable_templates")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
+class TimeSlot(models.Model):
+    DAYS_OF_WEEK = [
+        ('MONDAY', 'Monday'),
+        ('TUESDAY', 'Tuesday'),
+        ('WEDNESDAY', 'Wednesday'),
+        ('THURSDAY', 'Thursday'),
+        ('FRIDAY', 'Friday'),
+        ('SATURDAY', 'Saturday'),
+        ('SUNDAY', 'Sunday'),
+    ]
+    
+    slot_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template = models.ForeignKey(TimeTableTemplate, on_delete=models.CASCADE, related_name='slots')
+    
+    day = models.CharField(max_length=10, choices=DAYS_OF_WEEK)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    slot_order = models.PositiveIntegerField()
+    slot_type = models.CharField(max_length=50, blank=True, null=True, help_text="e.g. Theory, Lab, Break")
+
+    class Meta:
+        ordering = ['day', 'slot_order']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['template', 'day', 'slot_order'], 
+                name='unique_template_day_slot_order'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.day} - Slot {self.slot_order} ({self.start_time} - {self.end_time})"

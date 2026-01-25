@@ -72,3 +72,22 @@ class CalendarTemplateView(APIView):
         )
         response['Content-Disposition'] = 'attachment; filename=Academic_Calendar_Template.xlsx'
         return response
+
+from .models import TimeTableTemplate
+from .serializers import TimeTableTemplateSerializer
+
+class TimeTableTemplateViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing Time Table Templates.
+    """
+    queryset = TimeTableTemplate.objects.all().order_by('-created_at')
+    serializer_class = TimeTableTemplateSerializer
+    permission_classes = [IsCampusAdmin]
+    lookup_field = 'template_id'
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        department_id = self.request.query_params.get('department_id')
+        if department_id:
+            queryset = queryset.filter(department_id=department_id)
+        return queryset

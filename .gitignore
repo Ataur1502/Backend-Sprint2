@@ -1,0 +1,31 @@
+# Virtual Environments
+kill/
+intern/kill/
+venv/
+.venv/
+env/
+
+# Next.js
+.next/
+intern/testfrontend/.next/
+out/
+
+# Node.js
+node_modules/
+intern/testfrontend/node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+db.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+.env
+.env.local
+.vercel

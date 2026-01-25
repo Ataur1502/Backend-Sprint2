@@ -126,3 +126,56 @@ class AcademicCalendarSerializer(serializers.ModelSerializer):
         except Exception as e:
             calendar.delete()
             raise serializers.ValidationError(f"Error processing Excel: {str(e)}")
+
+from .models import TimeTableTemplate, TimeSlot
+
+class TimeSlotSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TimeSlot
+        fields = ['slot_id', 'day', 'start_time', 'end_time', 'slot_order', 'slot_type']
+
+class TimeTableTemplateSerializer(serializers.ModelSerializer):
+    slots = TimeSlotSerializer(many=True, required=False)
+    
+    class Meta:
+        model = TimeTableTemplate
+        fields = [
+            'template_id', 'name', 'school', 'degree', 'department', 
+            'semester', 'is_active', 'created_at', 'slots'
+        ]
+        read_only_fields = ['template_id', 'created_at']
+
+    def validate_slots(self, slots_data):
+        # Validate unique slot order per day within the payload
+        seen_slots = set()
+        for slot in slots_data:
+            day = slot.get('day')
+            order = slot.get('slot_order')
+            if (day, order) in seen_slots:
+                raise serializers.ValidationError(f"Duplicate slot order {order} for {day} in the template.")
+            seen_slots.add((day, order))
+        return slots_data
+
+    def create(self, validated_data):
+        slots_data = validated_data.pop('slots', [])
+        template = TimeTableTemplate.objects.create(**validated_data)
+        for slot in slots_data:
+            TimeSlot.objects.create(template=template, **slot)
+        return template
+
+    def update(self, instance, validated_data):
+        slots_data = validated_data.pop('slots', None)
+        instance.name = validated_data.get('name', instance.name)
+        instance.school = validated_data.get('school', instance.school)
+        instance.degree = validated_data.get('degree', instance.degree)
+        instance.department = validated_data.get('department', instance.department)
+        instance.semester = validated_data.get('semester', instance.semester)
+        instance.is_active = validated_data.get('is_active', instance.is_active)
+        instance.save()
+
+        if slots_data is not None:
+            instance.slots.all().delete()
+            for slot in slots_data:
+                TimeSlot.objects.create(template=instance, **slot)
+        
+        return instance

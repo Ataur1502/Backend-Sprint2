@@ -4,7 +4,68 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar } from 'lucide-react';
+import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock } from 'lucide-react';
+
+const SlotManager = ({ formData, setFormData }) => {
+    const slots = formData.slots || [];
+    const addSlot = () => {
+        const lastOrder = slots.length > 0 ? Math.max(...slots.map(s => s.slot_order)) : 0;
+        const newSlot = { day: 'MONDAY', start_time: '09:00', end_time: '10:00', slot_order: lastOrder + 1, slot_type: 'Theory' };
+        setFormData({ ...formData, slots: [...slots, newSlot] });
+    };
+    const removeSlot = (index) => {
+        const newSlots = [...slots];
+        newSlots.splice(index, 1);
+        setFormData({ ...formData, slots: newSlots });
+    };
+    const updateSlot = (index, field, value) => {
+        const newSlots = [...slots];
+        newSlots[index] = { ...newSlots[index], [field]: value };
+        setFormData({ ...formData, slots: newSlots });
+    };
+    return (
+        <div className="mt-6 border-t border-blue-100 pt-4 text-left">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Time Slots Configuration</h3>
+                <button type="button" onClick={addSlot} className="btn btn-outline text-[10px] py-1 px-3">
+                    <Plus size={14} /> Add Slot
+                </button>
+            </div>
+            <div className="space-y-3">
+                {slots.map((slot, idx) => (
+                    <div key={idx} className="bg-white p-3 rounded-lg border border-blue-100 grid grid-cols-2 md:grid-cols-6 gap-2 items-end relative">
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 block mb-1 uppercase">Day</label>
+                            <select className="input-field py-1 text-xs" value={slot.day} onChange={e => updateSlot(idx, 'day', e.target.value)}>
+                                {['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 block mb-1 uppercase">Start</label>
+                            <input type="time" className="input-field py-1 text-xs" value={slot.start_time} onChange={e => updateSlot(idx, 'start_time', e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 block mb-1 uppercase">End</label>
+                            <input type="time" className="input-field py-1 text-xs" value={slot.end_time} onChange={e => updateSlot(idx, 'end_time', e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 block mb-1 uppercase">Order</label>
+                            <input type="number" className="input-field py-1 text-xs" value={slot.slot_order} onChange={e => updateSlot(idx, 'slot_order', parseInt(e.target.value))} />
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 block mb-1 uppercase">Type</label>
+                            <input type="text" className="input-field py-1 text-xs" value={slot.slot_type} onChange={e => updateSlot(idx, 'slot_type', e.target.value)} placeholder="Theory/Lab" />
+                        </div>
+                        <div className="flex justify-end">
+                            <button type="button" onClick={() => removeSlot(idx)} className="text-red-400 hover:text-red-600 p-1 rounded-md hover:bg-red-50"><Trash2 size={16} /></button>
+                        </div>
+                    </div>
+                ))}
+                {slots.length === 0 && <div className="text-center py-4 bg-white/50 border border-dashed border-gray-200 rounded-lg text-xs text-gray-400 italic">No slots added yet.</div>}
+            </div>
+        </div>
+    );
+};
 
 // Reusable Tab Component
 const TabButton = ({ active, onClick, icon: Icon, label }) => (
@@ -21,7 +82,7 @@ const TabButton = ({ active, onClick, icon: Icon, label }) => (
 );
 
 // Generic Data Manager Component with Schema Support
-const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id', displayField = 'name' }) => {
+const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id', displayField = 'name', renderExtra = null }) => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
@@ -210,6 +271,7 @@ const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id',
                                 </div>
                             ))}
                         </div>
+                        {renderExtra && renderExtra({ formData, setFormData, currentItem })}
                         <div className="flex gap-2 justify-end pt-2">
                             <button type="button" onClick={() => setIsEditing(false)} className="btn btn-outline py-2 px-4 text-gray-500">
                                 <X size={16} /> Cancel
@@ -313,6 +375,12 @@ export default function Dashboard() {
                         onClick={() => setActiveTab('calendar')}
                         icon={Calendar}
                         label="Academic Setup"
+                    />
+                    <TabButton
+                        active={activeTab === 'timetable-template'}
+                        onClick={() => setActiveTab('timetable-template')}
+                        icon={Clock}
+                        label="Time Table Templates"
                     />
                 </div>
 
@@ -526,6 +594,36 @@ export default function Dashboard() {
                                 },
                                 { name: 'is_active', label: 'Active?', type: 'checkbox', required: false, defaultValue: true },
                             ]}
+                        />
+                    )}
+                    {activeTab === 'timetable-template' && (
+                        <DataManager
+                            title="Time Table Templates"
+                            endpoint="/academic/timetable-templates/"
+                            icon={Clock}
+                            idField="template_id"
+                            displayField="name"
+                            fields={[
+                                { name: 'name', label: 'Template Name', required: true },
+                                {
+                                    name: 'school', label: 'School Mapping', type: 'select', resource: '/create/schools/',
+                                    idKey: 'school_id', displayKey: 'school_name', required: true
+                                },
+                                {
+                                    name: 'degree', label: 'Degree Mapping', type: 'select', resource: '/create/degrees/',
+                                    idKey: 'degree_id', displayKey: 'degree_name', required: true
+                                },
+                                {
+                                    name: 'department', label: 'Department Mapping', type: 'select', resource: '/create/departments/',
+                                    idKey: 'dept_id', displayKey: 'dept_name', required: true
+                                },
+                                {
+                                    name: 'semester', label: 'Semester Mapping', type: 'select', resource: '/create/semesters/',
+                                    idKey: 'sem_id', displayKey: 'sem_name', required: true
+                                },
+                                { name: 'is_active', label: 'Active?', type: 'checkbox', required: false, defaultValue: true },
+                            ]}
+                            renderExtra={({ formData, setFormData }) => <SlotManager formData={formData} setFormData={setFormData} />}
                         />
                     )}
                 </motion.div>
