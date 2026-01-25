@@ -3,20 +3,15 @@ from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 import uuid
 
-# =====================================================
-# ROLE DEFINITIONS (LOCKED – DO NOT CHANGE STRINGS)
-# =====================================================
+# User Role Definitions
 ROLE_CHOICES = (
     ("COLLEGE_ADMIN", "college admin"),
-    ("ACADEMIC_COORDINATOR", "accedemic coordinator"),  # Maps to Campus Admin
+    ("ACADEMIC_COORDINATOR", "accedemic coordinator"),
     ("FACULTY", "Faculty"),
     ("STUDENT", "Student"),
 )
 
-# =====================================================
-# USER MODEL (EXTENDS AbstractUser - NO CONFLICTS)
-# =====================================================
-class User(AbstractUser):  # ✅ FIXED: AbstractUser not AbstractBaseUser
+class User(AbstractUser):
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, default="STUDENT")
 
@@ -27,10 +22,9 @@ class User(AbstractUser):  # ✅ FIXED: AbstractUser not AbstractBaseUser
     is_password_reset_done = models.BooleanField(default=False)
     password_last_changed_at = models.DateTimeField(null=True, blank=True)
     
-    # Map your roles to task requirements
     @property
     def is_campus_admin(self):
-        return self.role == "ACADEMIC_COORDINATOR"  # Team leader's naming
+        return self.role == "ACADEMIC_COORDINATOR"
     
     @property
     def is_academic_admin(self):
@@ -39,9 +33,7 @@ class User(AbstractUser):  # ✅ FIXED: AbstractUser not AbstractBaseUser
     def __str__(self):
         return f"{self.username} ({self.role})"
 
-# =====================================================
-# MFA SESSION MODEL (PERFECT - KEEP AS-IS)
-# =====================================================
+# MFA session tracking for Duo and OTP
 class MFASession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE)

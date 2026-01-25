@@ -7,10 +7,10 @@ from .permissions import IsCampusAdmin
 
 class AcademicCalendarViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Academic Calendar lifecycle:
-    - GET: List all calendars
-    - POST: Create from metadata + Excel upload
-    - DELETE: Remove calendar and associated events
+    Handles the Academic Calendar operations:
+    - List available calendars with optional school filtering
+    - Create a new calendar from an Excel upload
+    - Remove calendars and their associated events
     """
     queryset = AcademicCalendar.objects.all().order_by('-created_at')
     serializer_class = AcademicCalendarSerializer
@@ -78,7 +78,7 @@ from .serializers import TimeTableTemplateSerializer
 
 class TimeTableTemplateViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing Time Table Templates.
+    Manages reusable Time Table Templates which act as blueprints for actual schedules.
     """
     queryset = TimeTableTemplate.objects.all().order_by('-created_at')
     serializer_class = TimeTableTemplateSerializer

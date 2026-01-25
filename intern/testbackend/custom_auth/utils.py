@@ -5,7 +5,7 @@ from django.utils import timezone
 from datetime import timedelta
 from .models import User, MFASession
 
-# Optional import of duo_client; we will handle graceful fallback if it's not installed
+# Duo client is required for the push notification service
 try:
     from duo_client import Auth
 except Exception:
@@ -91,14 +91,7 @@ def _get_duo_handles(user):
     
     candidates.append(user.username)
     
-    # Standardize: Duo handles are typically lowercase or case-insensitive for lookup, 
-    # but let's try both original and lowercase to be safe.
-    final_handles = []
-    for c in filter(None, candidates):
-        final_handles.append(c)
-        final_handles.append(c.lower())
-    
-    # Deduplicate while preserving order
+    # Sort and remove duplicates from the list of handles
     return list(dict.fromkeys(final_handles))
 def send_duo_push(email):
     """Initiate a Duo Push for the user identified by email.

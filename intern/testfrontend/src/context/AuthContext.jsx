@@ -15,18 +15,15 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const checkAuth = async () => {
-        console.log("AuthProvider: checkAuth started");
         const token = localStorage.getItem('access_token');
         if (token) {
             const storedRole = localStorage.getItem('user_role');
             const storedEmail = localStorage.getItem('user_email');
             if (storedRole && storedEmail) {
-                console.log("AuthProvider: found user in storage", { storedEmail, storedRole });
                 setUser({ role: storedRole, email: storedEmail });
             }
         }
         setLoading(false);
-        console.log("AuthProvider: checkAuth finished");
     };
 
     const login = async (email, password) => {
@@ -88,7 +85,7 @@ export const AuthProvider = ({ children }) => {
                 localStorage.setItem('access_token', access);
                 if (refresh) localStorage.setItem('refresh_token', refresh);
 
-                // Fetch real user info or use returned data if available
+                // Set user details from response or storage
                 const userEmail = res.data.email || 'Google User';
                 const userRole = res.data.role || 'STUDENT';
                 localStorage.setItem('user_role', userRole);

@@ -21,7 +21,7 @@ class AcademicCalendarSerializer(serializers.ModelSerializer):
         read_only_fields = ['calendar_id', 'created_at']
 
     def validate(self, data):
-        # 1. Duplicate Check: Regulation + Batch + Semester + Active
+        # Prevent multiple active calendars for the same batch/semester/regulation
         regulation = data.get('regulation')
         batch = data.get('batch')
         semester = data.get('semester')
@@ -103,8 +103,7 @@ class AcademicCalendarSerializer(serializers.ModelSerializer):
                 if start_date > end_date:
                     raise serializers.ValidationError(f"Row {row_idx}: Start date ({start_date}) cannot be after end date ({end_date}).")
 
-                # TODO: Date conflict logic (e.g. overlapping instructions)
-                # For simplified logic, we just collect them for now.
+                # Note: We are currently collecting events without complex overlap checks
                 
                 events.append(CalendarEvent(
                     calendar=calendar,

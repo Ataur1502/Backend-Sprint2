@@ -41,6 +41,7 @@ export default function MFAVerifyPage() {
 
                     if (mfa_required) {
                         setMfaId(mfa_id);
+                        // Store the session ID locally for fallback use
                         localStorage.setItem('mfa_id', mfa_id);
                         setEmail(response.data.email);
                         setIsPushSupported(push_success);
@@ -61,6 +62,7 @@ export default function MFAVerifyPage() {
                     setError('Sign-in failed. Please try again.');
                 }
             } else {
+                // Resume an existing MFA session if available
                 const storedMfaId = localStorage.getItem('mfa_id');
                 const storedEmail = localStorage.getItem('mfa_email');
                 if (storedMfaId) {

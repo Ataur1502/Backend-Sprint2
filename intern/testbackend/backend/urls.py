@@ -21,6 +21,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('create/', include('Creation.urls')),
     path('auth/', include('custom_auth.urls')),
-    path('accounts/', include('allauth.urls')), # Added to resolve socialaccount_signup redirect issues
+    path('accounts/', include('allauth.urls')), # Required for social login flows
     path('academic/', include('AcademicSetup.urls')),
 ]
