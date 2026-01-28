@@ -23,4 +23,5 @@ urlpatterns = [
     path('auth/', include('custom_auth.urls')),
     path('accounts/', include('allauth.urls')), # Required for social login flows
     path('academic/', include('AcademicSetup.urls')),
+    path('users/', include('UserDataManagement.urls')),
 ]

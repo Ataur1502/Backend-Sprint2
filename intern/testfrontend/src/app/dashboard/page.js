@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock, PartyPopper } from 'lucide-react';
+import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock, PartyPopper, Users, FileText } from 'lucide-react';
 
 const SlotManager = ({ formData, setFormData }) => {
     const slots = formData.slots || [];
@@ -231,8 +231,43 @@ const TabButton = ({ active, onClick, icon: Icon, label }) => (
     </button>
 );
 
+const BulkUploadButton = ({ endpoint, onUploadSuccess }) => {
+    const [uploading, setUploading] = useState(false);
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await api.post(endpoint, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            alert(`Successfully created ${res.data.created} records.`);
+            if (onUploadSuccess) onUploadSuccess();
+        } catch (err) {
+            console.error(err);
+            alert("Upload failed. Please check the file format.");
+        } finally {
+            setUploading(false);
+            e.target.value = ''; // Reset input
+        }
+    };
+
+    return (
+        <label className={`btn btn-outline text-xs flex items-center gap-2 cursor-pointer ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            {uploading ? <Loader2 className="animate-spin" size={14} /> : <FileText size={14} />}
+            {uploading ? 'Uploading...' : 'Bulk Upload'}
+            <input type="file" className="hidden" onChange={handleFileChange} disabled={uploading} accept=".xlsx,.xls,.csv" />
+        </label>
+    );
+};
+
 // Generic Data Manager Component with Schema Support
-const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id', displayField = 'name', renderExtra = null }) => {
+const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id', displayField = 'name', renderExtra = null, renderHeaderExtra = null }) => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
@@ -261,7 +296,7 @@ const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id',
     const fetchForeignResources = async () => {
         // If any field is a FK (e.g. school_id), fetch the list
         for (const field of fields) {
-            if (field.type === 'select' && field.resource) {
+            if ((field.type === 'select' || field.type === 'multi-select') && field.resource) {
                 try {
                     const res = await api.get(field.resource);
                     const resourceData = Array.isArray(res.data) ? res.data : (res.data.results || []);
@@ -363,11 +398,14 @@ const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id',
                     </div>
                     <h2 className="text-lg font-bold text-gray-800">{title}</h2>
                 </div>
-                {!isEditing && (
-                    <button onClick={startCreate} className="btn btn-primary text-xs">
-                        <Plus size={16} /> Add New
-                    </button>
-                )}
+                <div className="flex gap-2 items-center">
+                    {renderHeaderExtra && renderHeaderExtra({ fetchData })}
+                    {!isEditing && (
+                        <button onClick={startCreate} className="btn btn-primary text-xs">
+                            <Plus size={16} /> Add New
+                        </button>
+                    )}
+                </div>
             </div>
 
             {isEditing && (
@@ -389,11 +427,17 @@ const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id',
                                             required={field.required}
                                         >
                                             <option value="">Select {field.label}</option>
-                                            {foreignData[field.name]?.map(opt => (
-                                                <option key={opt[field.idKey || 'id']} value={opt[field.idKey || 'id']}>
-                                                    {opt[field.displayKey || 'name']}
-                                                </option>
-                                            ))}
+                                            {field.options ? (
+                                                field.options.map(opt => (
+                                                    <option key={opt.id} value={opt.id}>{opt.name}</option>
+                                                ))
+                                            ) : (
+                                                foreignData[field.name]?.map(opt => (
+                                                    <option key={opt[field.idKey || 'id']} value={opt[field.idKey || 'id']}>
+                                                        {opt[field.displayKey || 'name']}
+                                                    </option>
+                                                ))
+                                            )}
                                         </select>
                                     ) : field.type === 'file' ? (
                                         <div className="flex flex-col gap-1">
@@ -408,6 +452,49 @@ const DataManager = ({ title, endpoint, icon: Icon, fields = [], idField = 'id',
                                                     Download template
                                                 </a>
                                             )}
+                                        </div>
+                                    ) : field.type === 'multi-select' ? (
+                                        <div className="space-y-2 mt-2">
+                                            <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto p-2 border border-blue-100 rounded-lg bg-white">
+                                                {(field.options || foreignData[field.name])?.map(opt => {
+                                                    const val = opt[field.idKey || 'id'] || opt.value;
+                                                    const label = opt[field.displayKey || 'name'] || opt.label;
+                                                    const isChecked = (formData[field.name] || []).some(m =>
+                                                        (m.school_id + ':' + (m.department_id || 'none')) === val ||
+                                                        (field.mappingMode && m[field.mappingIdKey || 'id'] === val)
+                                                    );
+
+                                                    return (
+                                                        <label key={val} className="flex items-center gap-2 p-1 hover:bg-blue-50 rounded cursor-pointer text-xs">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 accent-[var(--primary)]"
+                                                                checked={isChecked}
+                                                                onChange={(e) => {
+                                                                    let current = [...(formData[field.name] || [])];
+                                                                    if (e.target.checked) {
+                                                                        if (field.mappingMode) {
+                                                                            const [s_id, d_id] = val.split(':');
+                                                                            current.push({ school_id: s_id, department_id: d_id === 'none' ? null : d_id });
+                                                                        } else {
+                                                                            current.push(val);
+                                                                        }
+                                                                    } else {
+                                                                        if (field.mappingMode) {
+                                                                            current = current.filter(m => (m.school_id + ':' + (m.department_id || 'none')) !== val);
+                                                                        } else {
+                                                                            current = current.filter(v => v !== val);
+                                                                        }
+                                                                    }
+                                                                    setFormData({ ...formData, [field.name]: current });
+                                                                }}
+                                                            />
+                                                            <span className="text-gray-700">{label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 italic">Select one or more assignments.</p>
                                         </div>
                                     ) : field.type === 'checkbox' ? (
                                         <div className="flex items-center gap-2 mt-2">
@@ -554,6 +641,12 @@ export default function Dashboard() {
                         onClick={() => setActiveTab('holidays')}
                         icon={PartyPopper}
                         label="Holidays"
+                    />
+                    <TabButton
+                        active={activeTab === 'faculty'}
+                        onClick={() => setActiveTab('faculty')}
+                        icon={Users}
+                        label="Faculty Management"
                     />
                 </div>
 
@@ -844,6 +937,43 @@ export default function Dashboard() {
                             </div>
                             <HolidayManager />
                         </div>
+                    )}
+                    {activeTab === 'faculty' && (
+                        <DataManager
+                            title="Faculty Management"
+                            endpoint="/users/faculty/"
+                            icon={Users}
+                            idField="faculty_id"
+                            displayField="full_name"
+                            renderHeaderExtra={({ fetchData }) => (
+                                <BulkUploadButton
+                                    endpoint="/users/faculty/upload-bulk/"
+                                    onUploadSuccess={fetchData}
+                                />
+                            )}
+                            fields={[
+                                { name: 'full_name', label: 'Full Name', required: true },
+                                { name: 'employee_id', label: 'Employee ID', required: true },
+                                { name: 'email', label: 'Email Address', required: true, type: 'email' },
+                                { name: 'mobile_no', label: 'Mobile Number', required: false },
+                                { name: 'dob', label: 'Date of Birth', required: false, type: 'date' },
+                                {
+                                    name: 'gender', label: 'Gender', required: true, type: 'select',
+                                    options: [
+                                        { id: 'MALE', name: 'Male' },
+                                        { id: 'FEMALE', name: 'Female' },
+                                        { id: 'OTHER', name: 'Other' }
+                                    ]
+                                },
+                                {
+                                    name: 'mappings', label: 'School/Department Assignments', type: 'multi-select',
+                                    resource: '/users/faculty/mapping-options/',
+                                    mappingMode: true,
+                                    required: true
+                                },
+                                { name: 'is_active', label: 'Active Status', type: 'checkbox', defaultValue: true }
+                            ]}
+                        />
                     )}
                 </motion.div>
             </main>

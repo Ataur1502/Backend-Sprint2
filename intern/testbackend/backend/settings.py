@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'custom_auth',
     'Creation',
     'AcademicSetup',
+    'UserDataManagement',
 ]
 
 MIDDLEWARE = [
