@@ -1,8 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from .models import Faculty, FacultyMapping
-from Creation.models import School, Department
+from .models import Faculty, FacultyMapping, DepartmentAdminAssignment
+from Creation.models import School, Department, Degree
 
 User = get_user_model()
 
@@ -91,3 +91,121 @@ class FacultySerializer(serializers.ModelSerializer):
                 FacultyMapping.objects.create(faculty=instance, **mapping)
 
         return instance
+
+# ==================================================================================
+# DEPARTMENT ADMIN ASSIGNMENT SERIALIZER
+# ==================================================================================
+# This serializer handles the assignment of faculty members as Department Admins.
+#
+# Key Responsibilities:
+# 1. Validate cascading hierarchy (School -> Degree -> Department)
+# 2. Ensure selected department actually belongs to selected degree
+# 3. Ensure selected degree actually belongs to selected school
+# 4. Prevent duplicate assignments (handled by model unique_together)
+# 5. Automatically set assigned_by to the requesting user
+#
+# Cascading Validation Flow:
+# - Frontend sends: school_id, degree_id, department_id, faculty_id
+# - Backend validates:
+#   a) Does the degree belong to the selected school?
+#   b) Does the department belong to the selected degree?
+# - If valid, create assignment
+# - Model's save() method automatically updates faculty user's role
+# ==================================================================================
+
+class DepartmentAdminAssignmentSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating and managing Department Admin assignments.
+    
+    Enforces the academic hierarchy: School -> Degree -> Department
+    """
+    
+    # Use PrimaryKeyRelatedField for cleaner input/output
+    # Frontend sends UUIDs, backend validates they exist
+    faculty_id = serializers.PrimaryKeyRelatedField(
+        queryset=Faculty.objects.filter(is_active=True),
+        source='faculty',
+        help_text="Faculty member to assign (must be active)"
+    )
+    
+    school_id = serializers.PrimaryKeyRelatedField(
+        queryset=School.objects.all(),
+        source='school',
+        help_text="School in the hierarchy"
+    )
+    
+    degree_id = serializers.PrimaryKeyRelatedField(
+        queryset=Degree.objects.all(),  # Will be filtered in validation
+        source='degree',
+        help_text="Degree under the selected school"
+    )
+    
+    department_id = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(),
+        source='department',
+        help_text="Department under the selected degree"
+    )
+    
+    # Read-only fields for output
+    assigned_by_email = serializers.EmailField(
+        source='assigned_by.email',
+        read_only=True,
+        help_text="Email of admin who made this assignment"
+    )
+    
+    faculty_name = serializers.CharField(
+        source='faculty.full_name',
+        read_only=True,
+        help_text="Full name of assigned faculty"
+    )
+
+    class Meta:
+        model = DepartmentAdminAssignment
+        fields = [
+            'assignment_id', 'faculty_id', 'faculty_name', 'school_id', 
+            'degree_id', 'department_id', 'assigned_by', 'assigned_by_email',
+            'assigned_at', 'is_active'
+        ]
+        read_only_fields = ['assignment_id', 'assigned_by', 'assigned_at']
+
+    def validate(self, data):
+        """
+        Validate the cascading hierarchy: School -> Degree -> Department
+        
+        This ensures:
+        1. The selected degree belongs to the selected school
+        2. The selected department belongs to the selected degree
+        
+        If either validation fails, raise a clear error message.
+        """
+        school = data.get('school')
+        degree = data.get('degree')
+        department = data.get('department')
+        
+        # Validation 1: Does the degree belong to the selected school?
+        if degree and school:
+            if degree.school != school:
+                raise serializers.ValidationError({
+                    'degree_id': f"Selected degree '{degree.degree_name}' does not belong to school '{school.school_name}'"
+                })
+        
+        # Validation 2: Does the department belong to the selected degree?
+        if department and degree:
+            if department.degree != degree:
+                raise serializers.ValidationError({
+                    'department_id': f"Selected department '{department.dept_name}' does not belong to degree '{degree.degree_name}'"
+                })
+        
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        """
+        Create a new Department Admin assignment.
+        
+        The model's save() method will automatically update the faculty's
+        user role to DEPARTMENT_ADMIN.
+        """
+        # The assigned_by field should be set by the view from request.user
+        # If not already set, we'll handle it in the view
+        return DepartmentAdminAssignment.objects.create(**validated_data)

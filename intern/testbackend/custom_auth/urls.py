@@ -3,7 +3,7 @@ from .views import (
     LoginView, MFAVerifyView, DuoWebhookView,
     ForgotPasswordView, ForgotPasswordOTPVerifyView,
     ForgotPasswordResetView, ResetPasswordRequestView,
-    GoogleLogin
+    GoogleLogin, ActionMFAInitiateView, ActionMFACheckView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -11,6 +11,10 @@ urlpatterns = [
     # Unified Login and Multi-Factor Verification
     path('login/', LoginView.as_view(), name='login'),
     path('mfa-verify/', MFAVerifyView.as_view(), name='mfa-verify'),
+    
+    # Action-Specific MFA for Logged-in Users
+    path('action-mfa/initiate/', ActionMFAInitiateView.as_view(), name='action-mfa-initiate'),
+    path('action-mfa/check/<str:mfa_id>/', ActionMFACheckView.as_view(), name='action-mfa-check'),
     
     # Social Login
     path('google/', GoogleLogin.as_view(), name='google_login'),

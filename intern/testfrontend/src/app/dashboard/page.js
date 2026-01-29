@@ -1,10 +1,10 @@
 'use client';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import api from '@/lib/api';
-import { motion } from 'framer-motion';
-import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock, PartyPopper, Users, FileText } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock, PartyPopper, Users, FileText, UserCheck, Search, Smartphone } from 'lucide-react';
 
 const SlotManager = ({ formData, setFormData }) => {
     const slots = formData.slots || [];
@@ -63,6 +63,567 @@ const SlotManager = ({ formData, setFormData }) => {
                 ))}
                 {slots.length === 0 && <div className="text-center py-4 bg-white/50 border border-dashed border-gray-200 rounded-lg text-xs text-gray-400 italic">No slots added yet.</div>}
             </div>
+        </div>
+    );
+};
+
+// ==================================================================================
+// DEPARTMENT ADMIN ASSIGNMENT COMPONENT
+// ==================================================================================
+// This component allows Campus Admins to assign faculty members as Department Admins.
+// 
+// Features:
+// 1. Cascading Dropdowns: School → Degree → Department (multi-select)
+// 2. Faculty Search with Multi-select
+// 3. View/Delete existing assignments
+// 
+// Workflow:
+// Step 1: Campus Admin selects School → API fetches Degrees for that School
+// Step 2: Campus Admin selects Degree → API fetches Departments for that Degree
+// Step 3: Campus Admin selects Department(s) from checklist
+// Step 4: Campus Admin searches for Faculty by name/ID
+// Step 5: Campus Admin selects Faculty member(s) from search results
+// Step 6: Campus Admin clicks "Assign Department Admin" button
+// Step 7: Assignments are created (one per Faculty-Department pair)
+// Step 8: Faculty user roles are automatically updated to DEPARTMENT_ADMIN
+// ==================================================================================
+
+const DepartmentAdminManager = () => {
+    // Cascading selection state - each selection filters the next level
+    const [schools, setSchools] = useState([]);
+    const [degrees, setDegrees] = useState([]);
+    const [departments, setDepartments] = useState([]);
+
+    // Form selection state
+    const [selectedSchool, setSelectedSchool] = useState('');
+    const [selectedDegree, setSelectedDegree] = useState('');
+    const [selectedDepartments, setSelectedDepartments] = useState([]); // Array of dept IDs
+
+    // Faculty search state
+    const [facultySearchQuery, setFacultySearchQuery] = useState('');
+    const [facultySearchResults, setFacultySearchResults] = useState([]);
+    const [selectedFaculty, setSelectedFaculty] = useState([]); // Array of faculty objects
+    const [searching, setSearching] = useState(false);
+
+    // Assignments list state
+    const [assignments, setAssignments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [assigning, setAssigning] = useState(false);
+
+    // ==================================================================================
+    // EFFECT HOOKS - Cascading Data Loading
+    // ==================================================================================
+
+    // Load schools on mount and fetch existing assignments
+    useEffect(() => {
+        const fetchSchools = async () => {
+            try {
+                const res = await api.get('/create/schools/');
+                setSchools(res.data.results || res.data);
+            } catch (err) {
+                console.error('Failed to fetch schools:', err);
+            }
+        };
+        fetchSchools();
+        fetchAssignments();
+    }, []);
+
+    // Cascade: When school changes, load degrees for that school
+    useEffect(() => {
+        if (!selectedSchool) {
+            setDegrees([]);
+            setSelectedDegree('');
+            setDepartments([]);
+            setSelectedDepartments([]);
+            return;
+        }
+
+        const fetchDegrees = async () => {
+            try {
+                const res = await api.get(`/users/dept-admin/degrees-for-school/?school_id=${selectedSchool}`);
+                setDegrees(res.data);
+                setDepartments([]);
+                setSelectedDegree('');
+                setSelectedDepartments([]);
+            } catch (err) {
+                console.error('Failed to fetch degrees:', err);
+            }
+        };
+        fetchDegrees();
+    }, [selectedSchool]);
+
+    // Cascade: When degree changes, load departments for that degree
+    useEffect(() => {
+        if (!selectedDegree) {
+            setDepartments([]);
+            setSelectedDepartments([]);
+            return;
+        }
+
+        const fetchDepartments = async () => {
+            try {
+                const res = await api.get(`/users/dept-admin/departments-for-degree/?degree_id=${selectedDegree}`);
+                setDepartments(res.data);
+                setSelectedDepartments([]);
+            } catch (err) {
+                console.error('Failed to fetch departments:', err);
+            }
+        };
+        fetchDepartments();
+    }, [selectedDegree]);
+
+    // Debounced faculty search - only search after user stops typing for 300ms
+    useEffect(() => {
+        if (facultySearchQuery.length < 2) {
+            setFacultySearchResults([]);
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            setSearching(true);
+            try {
+                const res = await api.get(`/users/dept-admin/search-faculty/?q=${facultySearchQuery}`);
+                setFacultySearchResults(res.data);
+            } catch (err) {
+                console.error('Faculty search failed:', err);
+            } finally {
+                setSearching(false);
+            }
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [facultySearchQuery]);
+
+    // ==================================================================================
+    // HELPER FUNCTIONS
+    // ==================================================================================
+
+    const fetchAssignments = async () => {
+        setLoading(true);
+        try {
+            const res = await api.get('/users/dept-admin/');
+            setAssignments(res.data.results || res.data);
+        } catch (err) {
+            console.error('Failed to fetch assignments:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Toggle department selection (for multi-select)
+    const toggleDepartment = (deptId) => {
+        if (selectedDepartments.includes(deptId)) {
+            setSelectedDepartments(selectedDepartments.filter(id => id !== deptId));
+        } else {
+            setSelectedDepartments([...selectedDepartments, deptId]);
+        }
+    };
+
+    // Toggle faculty selection (for multi-select)
+    const toggleFaculty = (faculty) => {
+        const exists = selectedFaculty.find(f => f.faculty_id === faculty.faculty_id);
+        if (exists) {
+            setSelectedFaculty(selectedFaculty.filter(f => f.faculty_id !== faculty.faculty_id));
+        } else {
+            setSelectedFaculty([...selectedFaculty, faculty]);
+        }
+    };
+
+    // ==================================================================================
+    // ASSIGNMENT CREATION WITH ACTION-SPECIFIC MFA
+    // ==================================================================================
+    // This implementation triggers MFA verification WITHOUT redirecting to another page.
+    // The user stays on the dashboard, receives a push notification on their phone,
+    // and once approved, the assignments are created automatically.
+    //
+    // Flow:
+    // 1. User clicks "Assign Department Admin"
+    // 2. Backend sends Duo push to user's phone
+    // 3. UI shows "Waiting for MFA approval..." modal
+    // 4. Frontend polls backend every 2 seconds to check if MFA is approved
+    // 5. Once approved, assignments are created automatically
+    // 6. Success message displayed, form reset
+    // ==================================================================================
+
+    // MFA state
+    const [waitingForMFA, setWaitingForMFA] = useState(false);
+    const [mfaMessage, setMfaMessage] = useState('');
+    const mfaPollInterval = useRef(null);
+
+    const handleAssignClick = async () => {
+        // Validation: Ensure all required fields are selected
+        if (!selectedSchool || !selectedDegree || selectedDepartments.length === 0 || selectedFaculty.length === 0) {
+            alert('Please select School, Degree, Department(s), and Faculty before assigning.');
+            return;
+        }
+
+        // Create assignment objects for each Faculty-Department pair
+        const assignmentsToCreate = [];
+        selectedFaculty.forEach(faculty => {
+            selectedDepartments.forEach(deptId => {
+                assignmentsToCreate.push({
+                    faculty_id: faculty.faculty_id,
+                    school_id: selectedSchool,
+                    degree_id: selectedDegree,
+                    department_id: deptId
+                });
+            });
+        });
+
+        setAssigning(true);
+        setWaitingForMFA(true);
+
+        try {
+            // Step 1: Initiate MFA push
+            const mfaResponse = await api.post('/auth/action-mfa/initiate/', {
+                action: 'Department Admin Assignment'
+            });
+
+            const { mfa_id, message, push_success } = mfaResponse.data;
+
+            if (!push_success) {
+                setMfaMessage(message || 'MFA push failed. Please try again.');
+                setWaitingForMFA(false);
+                setAssigning(false);
+                return;
+            }
+
+            setMfaMessage(message || 'Check your Duo Mobile app and approve the request...');
+
+            // Step 2: Poll for MFA approval
+            mfaPollInterval.current = setInterval(async () => {
+                try {
+                    const checkResponse = await api.get(`/auth/action-mfa/check/${mfa_id}/`);
+
+                    if (checkResponse.data.mfa_verified) {
+                        // MFA approved! Stop polling and create assignments
+                        clearInterval(mfaPollInterval.current);
+                        setMfaMessage('MFA approved! Creating assignments...');
+
+                        // Step 3: Create all assignments
+                        await createAssignments(
+                            assignmentsToCreate,
+                            selectedFaculty.length,
+                            selectedDepartments.length
+                        );
+
+                        setWaitingForMFA(false);
+                        setAssigning(false);
+                    } else if (checkResponse.data.expired) {
+                        // MFA session expired
+                        clearInterval(mfaPollInterval.current);
+                        setMfaMessage('MFA session expired. Please try again.');
+                        setWaitingForMFA(false);
+                        setAssigning(false);
+                    }
+                } catch (pollErr) {
+                    console.error('MFA poll error:', pollErr);
+                    // Continue polling unless it's a critical error
+                    if (pollErr.response?.status === 404) {
+                        clearInterval(mfaPollInterval.current);
+                        setMfaMessage('MFA session not found. Please try again.');
+                        setWaitingForMFA(false);
+                        setAssigning(false);
+                    }
+                }
+            }, 2000); // Poll every 2 seconds
+
+            // Set timeout to stop polling after 10 minutes
+            setTimeout(() => {
+                if (mfaPollInterval.current) {
+                    clearInterval(mfaPollInterval.current);
+                    setMfaMessage('MFA timeout. Please try again.');
+                    setWaitingForMFA(false);
+                    setAssigning(false);
+                }
+            }, 600000); // 10 minutes
+
+        } catch (err) {
+            console.error('MFA initiation failed:', err);
+            setMfaMessage(err.response?.data?.detail || 'Failed to initiate MFA. Please try again.');
+            setWaitingForMFA(false);
+            setAssigning(false);
+        }
+    };
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (mfaPollInterval.current) {
+                clearInterval(mfaPollInterval.current);
+            }
+        };
+    }, []);
+
+
+    const createAssignments = async (assignmentsToCreate, facultyCount, departmentCount) => {
+        try {
+            // Create all assignments in parallel
+            const promises = assignmentsToCreate.map(data => api.post('/users/dept-admin/', data));
+            await Promise.all(promises);
+
+            alert(`Successfully assigned ${facultyCount} faculty to ${departmentCount} department(s)!`);
+
+            // Reset form
+            setSelectedSchool('');
+            setSelectedDegree('');
+            setSelectedDepartments([]);
+            setSelectedFaculty([]);
+            setFacultySearchQuery('');
+
+            // Refresh assignments list
+            fetchAssignments();
+        } catch (err) {
+            console.error('Assignment failed:', err);
+            alert('Failed to create assignments. Please try again.');
+        }
+    };
+
+    const handleDeleteAssignment = async (assignmentId) => {
+        if (!confirm('Are you sure you want to remove this Department Admin assignment?')) return;
+
+        try {
+            await api.delete(`/users/dept-admin/${assignmentId}/`);
+            alert('Assignment removed successfully');
+            fetchAssignments();
+        } catch (err) {
+            console.error('Failed to delete assignment:', err);
+            alert('Failed to remove assignment');
+        }
+    };
+
+    // ==================================================================================
+    // RENDER UI
+    // ==================================================================================
+
+    return (
+        <div className="space-y-6">
+            {/* Assignment Creation Form */}
+            <div className="card p-6">
+                <h2 className="text-lg font-bold mb-4 text-[var(--primary)]">
+                    <UserCheck className="inline mr-2" size={20} />
+                    Assign Department Admin
+                </h2>
+
+                {/* Cascading Dropdowns: School → Degree */}
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label className="block text-xs font-bold mb-1 text-gray-600">School *</label>
+                        <select
+                            className="input text-sm"
+                            value={selectedSchool}
+                            onChange={(e) => setSelectedSchool(e.target.value)}
+                        >
+                            <option value="">Select School</option>
+                            {schools.map(school => (
+                                <option key={school.school_id} value={school.school_id}>
+                                    {school.school_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold mb-1 text-gray-600">Degree *</label>
+                        <select
+                            className="input text-sm"
+                            value={selectedDegree}
+                            onChange={(e) => setSelectedDegree(e.target.value)}
+                            disabled={!selectedSchool || degrees.length === 0}
+                        >
+                            <option value="">Select Degree</option>
+                            {degrees.map(degree => (
+                                <option key={degree.degree_id} value={degree.degree_id}>
+                                    {degree.degree_name} ({degree.degree_code})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold mb-1 text-gray-600">Departments Selected</label>
+                        <div className="input text-sm min-h-[40px] flex items-center bg-gray-50">
+                            {selectedDepartments.length > 0 ? `${selectedDepartments.length} selected` : 'None'}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Department Multi-select Checkboxes */}
+                {departments.length > 0 && (
+                    <div className="mb-4 p-3 border border-blue-100 rounded-lg bg-blue-50/30">
+                        <p className="text-xs font-bold mb-2 text-gray-600">Select Department(s) *</p>
+                        <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                            {departments.map(dept => (
+                                <label key={dept.dept_id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white p-2 rounded">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedDepartments.includes(dept.dept_id)}
+                                        onChange={() => toggleDepartment(dept.dept_id)}
+                                        className="w-4 h-4 accent-[var(--primary)]"
+                                    />
+                                    <span>{dept.dept_name} ({dept.dept_code})</span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Faculty Search */}
+                {selectedDepartments.length > 0 && (
+                    <div className="mb-4">
+                        <label className="block text-xs font-bold mb-1 text-gray-600">Search Faculty *</label>
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                            <input
+                                type="text"
+                                className="input pl-10 text-sm"
+                                placeholder="Search by name or employee ID..."
+                                value={facultySearchQuery}
+                                onChange={(e) => setFacultySearchQuery(e.target.value)}
+                            />
+                        </div>
+
+                        {/* Faculty Search Results */}
+                        {facultySearchResults.length > 0 && (
+                            <div className="mt-2 border border-blue-100 rounded-lg max-h-48 overflow-y-auto">
+                                {facultySearchResults.map(faculty => (
+                                    <label key={faculty.faculty_id} className="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedFaculty.some(f => f.faculty_id === faculty.faculty_id)}
+                                            onChange={() => toggleFaculty(faculty)}
+                                            className="w-4 h-4 accent-[var(--primary)]"
+                                        />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold">{faculty.full_name}</p>
+                                            <p className="text-xs text-gray-500">{faculty.employee_id} • {faculty.email}</p>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Selected Faculty Display */}
+                        {selectedFaculty.length > 0 && (
+                            <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                <p className="text-xs font-bold mb-2 text-green-800">Selected Faculty ({selectedFaculty.length})</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {selectedFaculty.map(faculty => (
+                                        <span key={faculty.faculty_id} className="inline-flex items-center gap-1 bg-white px-3 py-1 rounded-full text-xs border border-green-300">
+                                            {faculty.full_name}
+                                            <X
+                                                size={14}
+                                                className="cursor-pointer text-red-500 hover:text-red-700"
+                                                onClick={() => toggleFaculty(faculty)}
+                                            />
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Assign Button */}
+                <button
+                    onClick={handleAssignClick}
+                    disabled={assigning || !selectedSchool || !selectedDegree || selectedDepartments.length === 0 || selectedFaculty.length === 0}
+                    className="btn btn-primary w-full flex items-center justify-center gap-2"
+                >
+                    {assigning ? (
+                        <><Loader2 className="animate-spin" size={16} /> Assigning...</>
+                    ) : (
+                        <><UserCheck size={16} /> Assign Department Admin</>
+                    )}
+                </button>
+            </div>
+
+            {/* Existing Assignments Table */}
+            <div className="card p-6">
+                <h2 className="text-lg font-bold mb-4 text-[var(--primary)]">Current Assignments</h2>
+                {loading ? (
+                    <div className="text-center py-8"><Loader2 className="animate-spin mx-auto" size={24} /></div>
+                ) : assignments.length === 0 ? (
+                    <p className="text-center text-gray-500 py-8">No department admin assignments yet</p>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full">
+                            <thead>
+                                <tr className="border-b border-blue-100">
+                                    <th className="text-left p-3 text-xs font-bold text-gray-600">Faculty</th>
+                                    <th className="text-left p-3 text-xs font-bold text-gray-600">Department</th>
+                                    <th className="text-left p-3 text-xs font-bold text-gray-600">Assigned By</th>
+                                    <th className="text-left p-3 text-xs font-bold text-gray-600">Date</th>
+                                    <th className="text-center p-3 text-xs font-bold text-gray-600">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {assignments.map(assignment => (
+                                    <tr key={assignment.assignment_id} className="border-b border-gray-100 hover:bg-blue-50/30">
+                                        <td className="p-3 text-sm">{assignment.faculty_name}</td>
+                                        <td className="p-3 text-sm">{assignment.department_id ? 'Department assigned' : 'N/A'}</td>
+                                        <td className="p-3 text-sm">{assignment.assigned_by_email || 'N/A'}</td>
+                                        <td className="p-3 text-sm">{new Date(assignment.assigned_at).toLocaleDateString()}</td>
+                                        <td className="p-3 text-center">
+                                            <button
+                                                onClick={() => handleDeleteAssignment(assignment.assignment_id)}
+                                                className="text-red-500 hover:text-red-700"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
+            {/* MFA Waiting Modal */}
+            <AnimatePresence>
+                {waitingForMFA && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl border border-blue-100 text-center"
+                        >
+                            <div className="inline-flex p-4 rounded-full bg-blue-50 mb-6">
+                                <div className="relative">
+                                    <Smartphone className="w-12 h-12 text-blue-600" />
+                                    <motion.div
+                                        animate={{ scale: [1, 1.2, 1] }}
+                                        transition={{ repeat: Infinity, duration: 2 }}
+                                        className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full border-2 border-white"
+                                    />
+                                </div>
+                            </div>
+
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">Check Your Device</h3>
+                            <p className="text-gray-600 mb-6">
+                                {mfaMessage || 'We sent a notification to your Duo Mobile app. Please approve it to continue.'}
+                            </p>
+
+                            <div className="flex justify-center gap-2 mb-4">
+                                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                            </div>
+
+                            <p className="text-xs text-gray-400 mt-4">
+                                Waiting for approval...
+                            </p>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };
@@ -648,6 +1209,12 @@ export default function Dashboard() {
                         icon={Users}
                         label="Faculty Management"
                     />
+                    <TabButton
+                        active={activeTab === 'dept-admin'}
+                        onClick={() => setActiveTab('dept-admin')}
+                        icon={UserCheck}
+                        label="Department Admin"
+                    />
                 </div>
 
                 <div className="p-4 border-t border-[var(--border)]">
@@ -974,6 +1541,19 @@ export default function Dashboard() {
                                 { name: 'is_active', label: 'Active Status', type: 'checkbox', defaultValue: true }
                             ]}
                         />
+                    )}
+
+                    {/* Department Admin Assignment Tab */}
+                    {activeTab === 'dept-admin' && (
+                        <div>
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="bg-blue-100 p-2 rounded-lg text-[var(--primary)]">
+                                    <UserCheck size={24} />
+                                </div>
+                                <h2 className="text-lg font-bold text-gray-800">Department Admin Assignment</h2>
+                            </div>
+                            <DepartmentAdminManager />
+                        </div>
                     )}
                 </motion.div>
             </main>

@@ -146,6 +146,88 @@ class MFAVerifyView(APIView):
 
 
 # =====================================================
+# ACTION-SPECIFIC MFA FOR LOGGED-IN USERS
+# =====================================================
+# This endpoint allows already-authenticated users to request MFA verification
+# for sensitive actions (like assigning Department Admins) without requiring
+# them to log out and log back in.
+# 
+# Workflow:
+# 1. Frontend calls this endpoint with action type (e.g., 'dept_admin_assignment')
+# 2. Backend sends Duo push to user's mobile device
+# 3. Backend returns mfa_id to frontend
+# 4. Frontend polls /auth/mfa-check/<mfa_id>/ to check approval status
+# 5. Once approved, frontend proceeds with the sensitive action
+# =====================================================
+
+class ActionMFAInitiateView(APIView):
+    """
+    Initiates MFA verification for already-logged-in users performing sensitive actions.
+    
+    Requires: IsAuthenticated permission (user must have valid JWT token)
+    Returns: mfa_id for polling status
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        user = request.user
+        action = request.data.get('action', 'sensitive_action')
+        
+        # Only allow MFA-eligible roles to use this endpoint
+        if user.role not in MFA_ALLOWED_ROLES:
+            return Response({
+                'detail': 'MFA not required for your role'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Send Duo push notification
+        success, msg, mfa_id = send_duo_push(user.email)
+        
+        if not mfa_id:
+            return Response({
+                'detail': msg
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        
+        return Response({
+            'mfa_id': mfa_id,
+            'push_success': success,
+            'message': msg if not success else f'Approve the Duo push for: {action}',
+            'action': action
+        })
+
+
+class ActionMFACheckView(APIView):
+    """
+    Checks the status of an action-specific MFA request.
+    
+    This is polled by the frontend to detect when the user has approved the MFA push.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, mfa_id):
+        user = request.user
+        
+        try:
+            session = MFASession.objects.get(id=mfa_id, user=user)
+        except MFASession.DoesNotExist:
+            return Response({
+                'detail': 'MFA session not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if session has expired (10 minutes)
+        if timezone.now() > session.created_at + timezone.timedelta(minutes=10):
+            return Response({
+                'mfa_verified': False,
+                'expired': True,
+                'detail': 'MFA session expired'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            'mfa_verified': session.is_verified,
+            'expired': False
+        })
+
+
+# =====================================================
 # FORGOT PASSWORD FLOW
 # =====================================================
 
