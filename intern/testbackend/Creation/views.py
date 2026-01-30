@@ -3,8 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
-from .models import School, Degree, Department, Semester
-from .serializers import DegreeSerializer, SchoolSerializer, DepartmentSerializer, SemesterSerializer
+from .models import School, Degree, Department, Semester, Regulation
+from .serializers import DegreeSerializer, SchoolSerializer, DepartmentSerializer, SemesterSerializer,RegulationSerializer
 from .permissions import IsCollegeAdmin
 from rest_framework.permissions import IsAuthenticated
 
@@ -67,119 +67,118 @@ class SchoolViewSet(viewsets.ModelViewSet):
     lookup_field = 'school_id'  # Allow looking up by school_id instead of default PK if desired
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
-#Degree creation
+
+
+"""
+-----------------------------------------------------------------------------------------------------------------------------
+                                            DEGREE CREATION
+-----------------------------------------------------------------------------------------------------------------------------
+"""
+
+
 class DegreeView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
+
     # ---------------- GET ----------------
-    def get(self, request, school_id=None):
-        if school_id:
-            school = get_object_or_404(School, school_id=school_id)
-            degrees = Degree.objects.filter(school=school)
-        else:
-            degrees = Degree.objects.all()
+    def get(self, request, school_id):
+        school = get_object_or_404(School, school_id=school_id)
+        degrees = Degree.objects.filter(school=school)
 
         serializer = DegreeSerializer(degrees, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # ---------------- POST ----------------
-    def post(self, request, school_id=None):
+    def post(self, request, school_id):
+        school = get_object_or_404(School, school_id=school_id)
         data = request.data
-        
-        # If school_id not in URL, check if it's in body
-        effective_school_id = school_id or data.get('school_id') or data.get('school')
-        
-        if not effective_school_id:
-            return Response({"message": "School ID is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        school = get_object_or_404(School, school_id=effective_school_id)
-
-        required_fields = [
-            'degree_code',
-            'degree_name',
-            'degree_duration',
-            'number_of_semesters'
-        ]
-
-        # Required field validation
-        if not all(field in data and data[field] for field in required_fields):
-            return Response(
-                {"message": "All required fields must be filled"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Duplicate Degree Code check
-        if Degree.objects.filter(degree_code=data['degree_code']).exists():
-            return Response(
-                {"message": "Degree Code already exists"},
-                status=status.HTTP_409_CONFLICT
-            )
-
-        # Duplicate Degree Name under same School
-        if Degree.objects.filter(
-            degree_name=data['degree_name'],
-            school=school
-        ).exists():
-            return Response(
-                {"message": "Degree Name already exists under this School"},
-                status=status.HTTP_409_CONFLICT
-            )
 
         serializer = DegreeSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save(school=school)
-            return Response(
-                {
-                    "message": "Degree created successfully",
-                    "data": serializer.data
-                },
-                status=status.HTTP_201_CREATED
-            )
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    # ---------------- PUT ----------------
-    def put(self, request, degree_id, school_id=None):
-        # We prefer degree_id directly as it's the unique PK/UUID for records
-        degree = get_object_or_404(Degree, degree_id=degree_id)
-        
-        # If school_id is provided, verify it matches (extra safety)
-        if school_id:
-            school = get_object_or_404(School, school_id=school_id)
-            if degree.school != school:
-                return Response({"message": "Degree does not belong to this school"}, status=status.HTTP_400_BAD_REQUEST)
+        # 1️⃣ Create Degree
+        degree = serializer.save(school=school)
 
-        # Prevent duplicate Degree Name during update
-        if 'degree_name' in request.data:
-            if Degree.objects.filter(
-                degree_name=request.data['degree_name'],
-                school=degree.school
-            ).exclude(degree_id=degree_id).exists():
-                return Response(
-                    {"message": "Degree Name already exists under this School"},
-                    status=status.HTTP_409_CONFLICT
-                )
+        # 2️⃣ Auto-create Semester ENTITIES
+        semesters = [
+    Semester(
+        degree=degree,
+        sem_number=i,
+        sem_name=f"Semester {i}",
+        year=((i - 1) // 2) + 1,   
+               
+    )
+    for i in range(1, degree.number_of_semesters + 1)
+]
 
-        serializer = DegreeSerializer(
-            degree,
-            data=request.data,
-            partial=True
+
+        Semester.objects.bulk_create(semesters)
+
+        return Response(
+            {
+                "message": "Degree and Semesters created successfully",
+                "data": serializer.data
+            },
+            status=status.HTTP_201_CREATED
         )
 
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {
-                    "message": "Degree updated successfully",
-                    "data": serializer.data
-                },
-                status=status.HTTP_200_OK
-            )
+    # ---------------- PUT ----------------
+    def put(self, request, school_id, degree_id):
+        school = get_object_or_404(School, school_id=school_id)
+        degree = get_object_or_404(
+            Degree,
+            degree_id=degree_id,
+            school=school
+        )
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = DegreeSerializer(degree, data=request.data, partial=True)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        old_sem_count = degree.number_of_semesters
+
+        # Save degree (updates number_of_semesters automatically)
+        degree = serializer.save()
+
+        new_sem_count = degree.number_of_semesters
+
+        # 🔁 Sync semesters
+        if new_sem_count > old_sem_count:
+            new_sems = [
+                Semester(
+                    degree=degree,
+                    sem_number=i,
+                    sem_name=f"Semester {i}",
+                    year=((i - 1) // 2) + 1,
+                    
+                )
+                for i in range(old_sem_count + 1, new_sem_count + 1)
+            ]
+            Semester.objects.bulk_create(new_sems)
+
+        elif new_sem_count < old_sem_count:
+            Semester.objects.filter(
+                degree=degree,
+                sem_number__gt=new_sem_count
+            ).delete()
+
+        return Response(
+            {
+                "message": "Degree and semesters updated successfully",
+                "data": DegreeSerializer(degree).data
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 
-
+'''
+---------------------------------------------------------------------------------------------------------------------------------
+                                            Department Creation
+---------------------------------------------------------------------------------------------------------------------------------
+'''
 #Department Creation
 
 from rest_framework.views import APIView
@@ -238,11 +237,12 @@ class DepartmentAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+
 # ------------------------------------------
 # REGULATION
 # ------------------------------------------
-from .models import Regulation
-from .serializers import RegulationSerializer
+
 
 class RegulationAPIView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
@@ -250,35 +250,50 @@ class RegulationAPIView(APIView):
     def get(self, request):
         regulations = Regulation.objects.all()
         degree_id = request.query_params.get('degree_id')
+
         if degree_id:
             regulations = regulations.filter(degree_id=degree_id)
-        
+
         serializer = RegulationSerializer(regulations, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
         serializer = RegulationSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {
-                    "message": "Regulation created successfully",
-                    "data": serializer.data
-                },
-                status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def put(self, request, regulation_id):
-        regulation = get_object_or_404(Regulation, regulation_id=regulation_id)
-        serializer = RegulationSerializer(regulation, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {
-                    "message": "Regulation updated successfully",
-                    "data": serializer.data
-                },
-                status=status.HTTP_200_OK
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        regulation = serializer.save()
+
+        return Response(
+            {
+                "msg": "Regulation created successfully",
+                "regulation_id": regulation.regulation_id,
+                "batch": regulation.batch,
+                "end_year": serializer.get_end_year(regulation)
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+
+'''
+-------------------------------------------------------------------------------------------------------------------------------
+                                                Sem Api
+-------------------------------------------------------------------------------------------------------------------------------
+'''
+#To store the sem names in DB and to use them in other features
+
+class SemesterAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsCollegeAdmin]
+
+    def get(self, request):
+        degree_id = request.query_params.get('degree_id')
+
+        semesters = Semester.objects.all()
+
+        if degree_id:
+            semesters = semesters.filter(degree_id=degree_id)
+
+        serializer = SemesterSerializer(semesters, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

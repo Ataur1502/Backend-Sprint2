@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 from django.conf import settings
-
+from django.contrib.auth import get_user_model
 from .models import User, MFASession
 
 class LoginSerializer(serializers.Serializer):
@@ -79,15 +79,17 @@ class MFAVerifySerializer(serializers.Serializer):
 # FORGOT PASSWORD SERIALIZERS
 # =====================================================
 
+
+User = get_user_model()
+
+
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def validate(self, attrs):
-        email = attrs.get("email")
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("User with this email does not exist.")
+        user = User.objects.filter(email=attrs["email"]).first()
+        if not user:
+            raise serializers.ValidationError("User not found.")
         attrs["user"] = user
         return attrs
 
@@ -100,32 +102,39 @@ class ForgotPasswordOTPVerifySerializer(serializers.Serializer):
         email = attrs["email"]
         otp = attrs["otp"]
 
-        try:
-            user = User.objects.get(email=email)
-            mfa = MFASession.objects.filter(
-                user=user, otp=otp, is_verified=False
-            ).latest("created_at")
+        user = User.objects.filter(email=email).first()
+        if not user:
+            raise serializers.ValidationError("User not found.")
 
-            if mfa.is_expired():
-                raise serializers.ValidationError("OTP expired.")
+        # 🔑 Always check latest unverified OTP
+        mfa = MFASession.objects.filter(
+            user=user,
+            is_verified=False
+        ).order_by("-created_at").first()
 
-            attrs["user"] = user
-            attrs["mfa_session"] = mfa
-            return attrs
+        if not mfa:
+            raise serializers.ValidationError("No active OTP found.")
 
-        except (User.DoesNotExist, MFASession.DoesNotExist):
+        if mfa.expires_at < timezone.now():
+            raise serializers.ValidationError("OTP expired.")
+
+        if mfa.otp != otp:
             raise serializers.ValidationError("Invalid OTP.")
+
+        attrs["user"] = user
+        attrs["mfa_session"] = mfa
+        return attrs
 
 
 class ForgotPasswordResetSerializer(serializers.Serializer):
-    new_password = serializers.CharField(min_length=8)
-    confirm_password = serializers.CharField(min_length=8)
+    mfa_id = serializers.UUIDField()
+    new_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["confirm_password"]:
             raise serializers.ValidationError("Passwords do not match.")
         return attrs
-
 
 # =====================================================
 # RESET PASSWORD (LOGGED-IN, ONE TIME)

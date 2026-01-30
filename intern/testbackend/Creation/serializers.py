@@ -1,11 +1,11 @@
 from rest_framework import serializers
-from .models import School, Degree, Department, Semester
+from .models import School, Degree, Department, Semester,Regulation
 
 
 # ------------------------------------------
 # School Serializer
 # ------------------------------------------
-# ... (existing)
+
 class SchoolSerializer(serializers.ModelSerializer):
     class Meta:
         model = School
@@ -13,7 +13,7 @@ class SchoolSerializer(serializers.ModelSerializer):
             'school_id',
             'school_name',
             'school_code',
-            'school_short_name'
+            
         ]
         read_only_fields = ['school_id']
 
@@ -21,9 +21,8 @@ class SchoolSerializer(serializers.ModelSerializer):
 # ------------------------------------------
 # Degree Serializer
 # ------------------------------------------
-# serializers.py
-from rest_framework import serializers
-from .models import Degree
+
+
 
 class DegreeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -36,16 +35,40 @@ class DegreeSerializer(serializers.ModelSerializer):
             'number_of_semesters',
             'school'
         ]
-        read_only_fields = ['degree_id', 'school']
+        read_only_fields = [
+    'degree_id',
+    'school',
+    'number_of_semesters',
+    'degree_code'
+]
+
+    def create(self, validated_data):
+        years = validated_data['degree_duration']
+        validated_data['number_of_semesters'] = years * 2
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'degree_duration' in validated_data:
+            years = validated_data['degree_duration']
+            instance.number_of_semesters = years * 2
+
+        instance.degree_name = validated_data.get(
+            'degree_name', instance.degree_name
+        )
+        instance.degree_code = validated_data.get(
+            'degree_code', instance.degree_code
+        )
+        instance.degree_duration = validated_data.get(
+            'degree_duration', instance.degree_duration
+        )
+
+        instance.save()
+        return instance
 
 
-#Dept Admin
 
+#Dept Creation
 
-from rest_framework import serializers
-from .models import Department
-from rest_framework import serializers
-from .models import Department
 
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -89,12 +112,20 @@ class SemesterSerializer(serializers.ModelSerializer):
             'sem_id',
             'sem_number',
             'sem_name',
-            'sem_short_name',
             'year',
-            'annual_exam',
+            
             'degree',
             'department'
         ]
+        read_only_fields = (
+            'sem_id',
+            'sem_number',
+            'sem_name',
+            'year',
+            
+            'degree',
+            'department',
+        )
 
     def validate(self, data):
         degree = data.get('degree')
@@ -117,22 +148,40 @@ class SemesterSerializer(serializers.ModelSerializer):
 # ------------------------------------------
 # REGULATION SERIALIZER
 # ------------------------------------------
-from .models import Regulation
+
+
+
+
 
 class RegulationSerializer(serializers.ModelSerializer):
+    start_year = serializers.IntegerField(write_only=True)
+    end_year = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Regulation
         fields = [
             'regulation_id',
             'regulation_code',
+            'start_year',
+            'end_year',
             'batch',
             'degree',
-            'is_active',
             'created_at'
         ]
-        read_only_fields = ['regulation_id', 'created_at']
+        read_only_fields = [
+            'regulation_id',
+            'batch',
+            'created_at'
+        ]
 
-    def validate_regulation_code(self, value):
-        if Regulation.objects.filter(regulation_code__iexact=value).exists():
-            raise serializers.ValidationError("A regulation with this ID already exists.")
-        return value
+    def create(self, validated_data):
+        start_year = validated_data.pop('start_year')
+        degree = validated_data['degree']
+
+        end_year = start_year + degree.degree_duration
+        validated_data['batch'] = f"{start_year}-{end_year}"
+
+        return super().create(validated_data)
+
+    def get_end_year(self, obj):
+        return int(obj.batch.split('-')[1])

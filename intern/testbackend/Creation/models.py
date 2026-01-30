@@ -23,9 +23,7 @@ class School(models.Model):
         unique=True
     )
 
-    school_short_name = models.CharField(
-        max_length=50
-    )
+    
 
     def __str__(self):
         return f"{self.school_name} ({self.school_code})"
@@ -66,7 +64,7 @@ class Degree(models.Model):
         return f"{self.degree_name} ({self.degree_code})"
 
 
-#Department admin
+#Department creation
 
 
 class Department(models.Model):
@@ -98,12 +96,22 @@ class Department(models.Model):
 # ------------------------------------------
 # SEMESTER
 # ------------------------------------------
+
+
+import uuid
+from django.db import models
+from .models import Degree, Department  # adjust import if needed
+
+
 class Semester(models.Model):
     sem_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
+
+    sem_number = models.PositiveIntegerField()
+    sem_name = models.CharField(max_length=50)
 
     degree = models.ForeignKey(
         Degree,
@@ -113,69 +121,62 @@ class Semester(models.Model):
 
     department = models.ForeignKey(
         Department,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="semesters"
     )
 
-    sem_number = models.PositiveIntegerField(
-        validators=[MinValueValidator(1)]
-    )
-
-    sem_name = models.CharField(max_length=50)
-    sem_short_name = models.CharField(max_length=10)  # I-I, I-II
-    year = models.PositiveIntegerField()               # Academic year
-    annual_exam = models.BooleanField(default=False)
+    year = models.PositiveIntegerField()
+  
 
     class Meta:
-        unique_together = [
-            ('degree', 'department', 'sem_number'),
-            ('degree', 'department', 'sem_name')
-        ]
+        unique_together = ('degree', 'sem_number')
+        ordering = ['sem_number']
 
     def __str__(self):
-        return f"{self.sem_name} ({self.department.dept_code})"
+        return f"{self.degree.degree_name} - Semester {self.sem_number}"
+
+
+
 # ------------------------------------------
 # REGULATION
 # ------------------------------------------
+
+import uuid
+from django.db import models
+from .models import Degree
+
+
 class Regulation(models.Model):
     regulation_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
-    
-    # Pre-conditions: Degree and Department must exist 
-    # For now we'll map to Degree as per 'Degree Mapping' input requirement
+
     degree = models.ForeignKey(
         Degree,
         on_delete=models.CASCADE,
         related_name="regulations"
     )
-    
-    # Input: Regulation ID (e.g., MR25)
+
     regulation_code = models.CharField(
         max_length=50,
-        unique=True,
-        help_text="e.g. MR25"
+        help_text="e.g. R20"
     )
-    
-    # Input: Batch (e.g. 2025-2026)
+
     batch = models.CharField(
-        max_length=50,
-        help_text="e.g. 2025-2026"
+        max_length=20,
+        help_text="e.g. 2020-2024"
     )
-    
-    # Status (Active/Inactive)
-    is_active = models.BooleanField(
-        default=True
-    )
-    
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        # Requirements: Validate uniqueness of Regulation ID (code) for redundancy.
-        # We also ensure a degree/batch/code combo is unique if needed, 
-        # but code itself is already unique.
+        unique_together = [
+            ('degree', 'regulation_code', 'batch')
+        ]
         ordering = ['-created_at']
 
     def __str__(self):

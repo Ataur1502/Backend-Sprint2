@@ -146,89 +146,7 @@ class MFAVerifyView(APIView):
 
 
 # =====================================================
-# ACTION-SPECIFIC MFA FOR LOGGED-IN USERS
-# =====================================================
-# This endpoint allows already-authenticated users to request MFA verification
-# for sensitive actions (like assigning Department Admins) without requiring
-# them to log out and log back in.
-# 
-# Workflow:
-# 1. Frontend calls this endpoint with action type (e.g., 'dept_admin_assignment')
-# 2. Backend sends Duo push to user's mobile device
-# 3. Backend returns mfa_id to frontend
-# 4. Frontend polls /auth/mfa-check/<mfa_id>/ to check approval status
-# 5. Once approved, frontend proceeds with the sensitive action
-# =====================================================
-
-class ActionMFAInitiateView(APIView):
-    """
-    Initiates MFA verification for already-logged-in users performing sensitive actions.
-    
-    Requires: IsAuthenticated permission (user must have valid JWT token)
-    Returns: mfa_id for polling status
-    """
-    permission_classes = [IsAuthenticated]
-    
-    def post(self, request):
-        user = request.user
-        action = request.data.get('action', 'sensitive_action')
-        
-        # Only allow MFA-eligible roles to use this endpoint
-        if user.role not in MFA_ALLOWED_ROLES:
-            return Response({
-                'detail': 'MFA not required for your role'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Send Duo push notification
-        success, msg, mfa_id = send_duo_push(user.email)
-        
-        if not mfa_id:
-            return Response({
-                'detail': msg
-            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        
-        return Response({
-            'mfa_id': mfa_id,
-            'push_success': success,
-            'message': msg if not success else f'Approve the Duo push for: {action}',
-            'action': action
-        })
-
-
-class ActionMFACheckView(APIView):
-    """
-    Checks the status of an action-specific MFA request.
-    
-    This is polled by the frontend to detect when the user has approved the MFA push.
-    """
-    permission_classes = [IsAuthenticated]
-    
-    def get(self, request, mfa_id):
-        user = request.user
-        
-        try:
-            session = MFASession.objects.get(id=mfa_id, user=user)
-        except MFASession.DoesNotExist:
-            return Response({
-                'detail': 'MFA session not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Check if session has expired (10 minutes)
-        if timezone.now() > session.created_at + timezone.timedelta(minutes=10):
-            return Response({
-                'mfa_verified': False,
-                'expired': True,
-                'detail': 'MFA session expired'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        return Response({
-            'mfa_verified': session.is_verified,
-            'expired': False
-        })
-
-
-# =====================================================
-# FORGOT PASSWORD FLOW
+# FORGOT PASSWORD 
 # =====================================================
 
 class ForgotPasswordView(APIView):
@@ -254,7 +172,6 @@ class ForgotPasswordView(APIView):
 
 
 class ForgotPasswordOTPVerifyView(APIView):
-    """Verifies the OTP sent for the forgot password flow."""
     def post(self, request):
         serializer = ForgotPasswordOTPVerifySerializer(data=request.data)
         if serializer.is_valid():
@@ -262,7 +179,7 @@ class ForgotPasswordOTPVerifyView(APIView):
 
             if user.role not in MFA_ALLOWED_ROLES:
                 return Response(
-                    {"detail": "Access denied. Restricted to admin roles."},
+                    {"detail": "Access denied."},
                     status=status.HTTP_403_FORBIDDEN
                 )
 
@@ -270,23 +187,41 @@ class ForgotPasswordOTPVerifyView(APIView):
             mfa.is_verified = True
             mfa.save()
 
-            return Response({"otp_verified": True})
+            # ✅ RETURN MFA ID HERE
+            return Response(
+                {
+                    "otp_verified": True,
+                    "mfa_id": str(mfa.id)
+                },
+                status=status.HTTP_200_OK
+            )
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 
 
 class ForgotPasswordResetView(APIView):
     """Sets the new password after the OTP has been verified."""
     def post(self, request):
         serializer = ForgotPasswordResetSerializer(data=request.data)
+
         if serializer.is_valid():
-            # Get the latest verified session for recovery
+            mfa_id = serializer.validated_data["mfa_id"]
+
             try:
-                mfa = MFASession.objects.filter(is_verified=True).latest("created_at")
+                mfa = MFASession.objects.get(
+                    id=mfa_id,
+                    is_verified=True
+                )
             except MFASession.DoesNotExist:
-                return Response({"detail": "No verified session found."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"detail": "Invalid or unverified OTP session."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             user = mfa.user
+
             if user.role not in MFA_ALLOWED_ROLES:
                 return Response(
                     {"detail": "Access denied. Restricted to admin roles."},
@@ -297,8 +232,69 @@ class ForgotPasswordResetView(APIView):
             user.password_last_changed_at = timezone.now()
             user.save()
 
-            mfa.delete()  # Cleanup session after use
-            return Response({"password_reset": True, "message": "Password reset successfully."})
+            # Cleanup ALL OTP sessions for safety
+            MFASession.objects.filter(user=user).delete()
+
+            return Response(
+                {"password_reset": True, "message": "Password reset successfully."},
+                status=status.HTTP_200_OK
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#resend OTP
+
+class ResendForgotPasswordOTPView(APIView):
+    """
+    Resends OTP for forgot password
+    """
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+
+        if serializer.is_valid():
+            user = serializer.validated_data["user"]
+
+            # Role check
+            if user.role not in MFA_ALLOWED_ROLES:
+                return Response(
+                    {"detail": "Access denied. Restricted to admin roles."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Get last OTP session (NO purpose field)
+            last_mfa = MFASession.objects.filter(
+                user=user,
+                is_verified=False
+            ).order_by("-created_at").first()
+
+            # Cooldown check (30 seconds)
+            if last_mfa:
+                time_diff = (timezone.now() - last_mfa.created_at).seconds
+                if time_diff < 30:
+                    return Response(
+                        {"detail": "Please wait 30 seconds before resending OTP."},
+                        status=status.HTTP_429_TOO_MANY_REQUESTS
+                    )
+
+            # Delete old OTPs
+            MFASession.objects.filter(
+                user=user,
+                is_verified=False
+            ).delete()
+
+            # Send new OTP
+            success, msg, _ = send_otp_email(user.email)
+
+            if not success:
+                return Response(
+                    {"detail": msg},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            return Response(
+                {"otp_sent": True, "message": "OTP resent successfully"},
+                status=status.HTTP_200_OK
+            )
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -389,3 +385,87 @@ class DuoWebhookView(APIView):
 
         mfa.save()
         return Response({'ok': True})
+
+
+
+# =====================================================
+# ACTION-SPECIFIC MFA FOR LOGGED-IN USERS
+# =====================================================
+# This endpoint allows already-authenticated users to request MFA verification
+# for sensitive actions (like assigning Department Admins) without requiring
+# them to log out and log back in.
+# 
+# Workflow:
+# 1. Frontend calls this endpoint with action type (e.g., 'dept_admin_assignment')
+# 2. Backend sends Duo push to user's mobile device
+# 3. Backend returns mfa_id to frontend
+# 4. Frontend polls /auth/mfa-check/<mfa_id>/ to check approval status
+# 5. Once approved, frontend proceeds with the sensitive action
+# =====================================================
+
+class ActionMFAInitiateView(APIView):
+    """
+    Initiates MFA verification for already-logged-in users performing sensitive actions.
+    
+    Requires: IsAuthenticated permission (user must have valid JWT token)
+    Returns: mfa_id for polling status
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        user = request.user
+        action = request.data.get('action', 'sensitive_action')
+        
+        # Only allow MFA-eligible roles to use this endpoint
+        if user.role not in MFA_ALLOWED_ROLES:
+            return Response({
+                'detail': 'MFA not required for your role'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Send Duo push notification
+        success, msg, mfa_id = send_duo_push(user.email)
+        
+        if not mfa_id:
+            return Response({
+                'detail': msg
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        
+        return Response({
+            'mfa_id': mfa_id,
+            'push_success': success,
+            'message': msg if not success else f'Approve the Duo push for: {action}',
+            'action': action
+        })
+
+
+class ActionMFACheckView(APIView):
+    """
+    Checks the status of an action-specific MFA request.
+    
+    This is polled by the frontend to detect when the user has approved the MFA push.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, mfa_id):
+        user = request.user
+        
+        try:
+            session = MFASession.objects.get(id=mfa_id, user=user)
+        except MFASession.DoesNotExist:
+            return Response({
+                'detail': 'MFA session not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if session has expired (10 minutes)
+        if timezone.now() > session.created_at + timezone.timedelta(minutes=10):
+            return Response({
+                'mfa_verified': False,
+                'expired': True,
+                'detail': 'MFA session expired'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            'mfa_verified': session.is_verified,
+            'expired': False
+        })
+

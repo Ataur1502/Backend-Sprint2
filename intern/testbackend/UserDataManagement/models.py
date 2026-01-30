@@ -1,7 +1,17 @@
 import uuid
 from django.db import models
 from django.conf import settings
-from Creation.models import School, Department
+from Creation.models import School, Department, Degree,Regulation,Semester
+
+'''
+----------------------------------------------------------------------------------------------------------------------------
+                                    Faculty creation
+----------------------------------------------------------------------------------------------------------------------------
+'''
+
+
+
+import uuid
 
 class Faculty(models.Model):
     GENDER_CHOICES = [
@@ -9,26 +19,34 @@ class Faculty(models.Model):
         ('FEMALE', 'Female'),
         ('OTHER', 'Other'),
     ]
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
 
-    faculty_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='faculty_profile')
-    
-    employee_id = models.CharField(max_length=50, unique=True, help_text="Unique Employee ID")
-    full_name = models.CharField(max_length=255)
-    email = models.EmailField(unique=True)
-    mobile_no = models.CharField(max_length=15, blank=True, null=True)
-    dob = models.DateField(blank=True, null=True)
-    gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
-    
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='faculty_profile'
+    )
+
+    employee_id = models.CharField(
+        max_length=50,
+        unique=True,
+        help_text="Unique Employee ID"
+    )
+
+    faculty_name = models.CharField(max_length=255)
+    faculty_email = models.EmailField(unique=True)
+    faculty_mobile_no = models.CharField(max_length=15, blank=True, null=True)
+    faculty_date_of_birth = models.DateField(blank=True, null=True)
+    faculty_gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-        verbose_name_plural = "Faculties"
-        ordering = ['-created_at']
 
-    def __str__(self):
-        return f"{self.full_name} ({self.employee_id})"
 
 class FacultyMapping(models.Model):
     mapping_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -40,7 +58,75 @@ class FacultyMapping(models.Model):
         unique_together = ['faculty', 'school', 'department']
 
     def __str__(self):
-        return f"{self.faculty.full_name} -> {self.school.school_name}" + (f" ({self.department.dept_name})" if self.department else "")
+        return f"{self.faculty.faculty_name} -> {self.school.school_name}" + (
+            f" ({self.department.dept_name})" if self.department else ""
+        )
+
+
+
+'''
+--------------------------------------------------------------------------------------------------------------------------------
+                                                Student creation
+--------------------------------------------------------------------------------------------------------------------------------
+'''
+
+
+
+from django.db import models
+from Creation.models import Degree, Department, Regulation, Semester
+
+
+class Student(models.Model):
+    # Django will automatically create: id = AutoField(primary_key=True)
+    student_id = models.UUIDField(
+            primary_key=True,
+            default=uuid.uuid4,
+            editable=False
+        )
+    roll_no = models.CharField(max_length=30)
+
+    # ===== Student details (matches serializer & Excel) =====
+    student_name = models.CharField(max_length=255)
+    student_email = models.EmailField()
+    student_gender = models.CharField(max_length=10)
+    student_date_of_birth = models.DateField()
+
+    student_phone_number = models.CharField(max_length=15)
+
+    # ===== Parent details =====
+    parent_name = models.CharField(max_length=255)
+    parent_phone_number = models.CharField(max_length=15)
+
+    # ===== Academic details =====
+    batch = models.CharField(max_length=20)
+
+    degree = models.ForeignKey(
+        Degree, on_delete=models.PROTECT, related_name="students"
+    )
+    department = models.ForeignKey(
+        Department, on_delete=models.PROTECT, related_name="students"
+    )
+    regulation = models.ForeignKey(
+        Regulation, on_delete=models.PROTECT, related_name="students"
+    )
+    semester = models.ForeignKey(
+        Semester, on_delete=models.PROTECT, related_name="students"
+    )
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [
+            ("department", "roll_no")  # dept-wise isolation
+        ]
+        ordering = ["roll_no"]
+
+    def __str__(self):
+        return f"{self.roll_no} - {self.student_name}"
+
+
+
 
 # ==================================================================================
 # DEPARTMENT ADMIN ASSIGNMENT MODEL

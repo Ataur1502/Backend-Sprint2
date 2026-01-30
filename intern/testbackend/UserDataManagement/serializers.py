@@ -1,96 +1,321 @@
+import csv
+import io
+import random
+import string
+from datetime import datetime
+from openpyxl import load_workbook
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from .models import Faculty, FacultyMapping, DepartmentAdminAssignment
-from Creation.models import School, Department, Degree
+from .models import Faculty, FacultyMapping, Student,DepartmentAdminAssignment
+from Creation.models import School, Department,Degree, Department, Regulation
 
 User = get_user_model()
 
-class FacultyMappingSerializer(serializers.ModelSerializer):
-    school_id = serializers.PrimaryKeyRelatedField(
-        queryset=School.objects.all(), source='school'
+'''
+---------------------------------------------------------------------------------------------------------------------------------
+                                            Faculty creation
+---------------------------------------------------------------------------------------------------------------------------------
+'''
+
+class FacultyMappingCreateSerializer(serializers.Serializer):
+    school_code = serializers.CharField()
+    dept_code = serializers.CharField()
+
+class FacultyMappingReadSerializer(serializers.ModelSerializer):
+    school_code = serializers.CharField(
+        source="school.school_code",
+        read_only=True
     )
-    department_id = serializers.PrimaryKeyRelatedField(
-        queryset=Department.objects.all(), source='department', 
-        required=False, allow_null=True
+    department_id = serializers.UUIDField(
+        source="department.id",
+        read_only=True
     )
 
     class Meta:
         model = FacultyMapping
-        fields = ['school_id', 'department_id']
+        fields = ["school_code", "department_id"]
 
 class FacultySerializer(serializers.ModelSerializer):
-    mappings = FacultyMappingSerializer(many=True)
-
     class Meta:
         model = Faculty
         fields = [
-            'faculty_id', 'employee_id', 'full_name', 'email', 'mobile_no', 
-            'dob', 'gender', 'mappings', 'is_active', 'created_at'
+            "id",
+            "employee_id",
+            "faculty_name",
+            "faculty_email",
+            "faculty_mobile_no",
+            "faculty_date_of_birth",
+            "faculty_gender",
+            "is_active",
+            "created_at",
         ]
-        read_only_fields = ['faculty_id', 'created_at']
+        read_only_fields = ["id", "created_at"]
 
     def validate_employee_id(self, value):
         instance = self.instance
-        if Faculty.objects.filter(employee_id=value).exclude(pk=getattr(instance, 'pk', None)).exists():
-            raise serializers.ValidationError("A faculty with this Employee ID already exists.")
+        qs = Faculty.objects.filter(employee_id=value)
+        if instance:
+            qs = qs.exclude(pk=instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                "A faculty with this employee_id already exists."
+            )
         return value
 
     @transaction.atomic
     def create(self, validated_data):
-        mappings_data = validated_data.pop('mappings', [])
-        employee_id = validated_data.get('employee_id')
-        email = validated_data.get('email')
+        mappings_data = validated_data.pop("mappings", [])
+        employee_id = validated_data["employee_id"]
+        email = validated_data.get("faculty_email")
 
-        # Create or Get User (Username & Password = Employee ID)
+        # --- USER ---
         user, created = User.objects.get_or_create(
             username=employee_id,
-            defaults={
-                'email': email,
-                'role': 'FACULTY'
-            }
+            defaults={"email": email}
         )
+
         if created:
-            user.set_password(employee_id)
-            user.save()
-        else:
-            # If user already exists, update email and role just in case
-            user.email = email
-            user.role = 'FACULTY'
-            user.save()
+            user.set_password(employee_id)  # password = employee_id
+        user.email = email
+        user.save()
 
-        faculty = Faculty.objects.create(user=user, **validated_data)
+        # --- FACULTY ---
+        faculty = Faculty.objects.create(
+            user=user,
+            **validated_data
+        )
 
+        # --- MAPPINGS ---
         for mapping in mappings_data:
-            FacultyMapping.objects.create(faculty=faculty, **mapping)
+            school_code = mapping["school_code"]
+            dept_code = mapping["dept_code"]
+
+            school = School.objects.filter(
+                school_code__iexact=school_code
+            ).first()
+            if not school:
+                raise serializers.ValidationError(
+                    {"school_code": f"Invalid school_code '{school_code}'"}
+                )
+
+            department = Department.objects.filter(
+                dept_code__iexact=dept_code,
+                degree__school=school
+            ).first()
+            if not department:
+                raise serializers.ValidationError(
+                    {
+                        "dept_code": f"Invalid dept_code '{dept_code}' "
+                                     f"for school '{school_code}'"
+                    }
+                )
+
+            FacultyMapping.objects.create(
+                faculty=faculty,
+                school=school,
+                department=department
+            )
 
         return faculty
 
+
+    
+
+
+'''
+--------------------------------------------------------------------------------------------------------------------------------
+                                                Student creation
+--------------------------------------------------------------------------------------------------------------------------------
+'''
+
+
+"""
+creates Students using .Xlsx file 
+"""
+
+
+from rest_framework import serializers
+from django.db import transaction
+from openpyxl import load_workbook
+
+from .models import Student
+from Creation.models import Department, Regulation, Semester
+
+from rest_framework import serializers
+from django.db import transaction
+from openpyxl import load_workbook
+
+from .models import Student
+from Creation.models import Department, Regulation, Semester
+
+
+from rest_framework import serializers
+from django.db import transaction
+from openpyxl import load_workbook
+from django.contrib.auth import get_user_model
+
+from .models import Student
+from AcademicSetup.models import Department, Semester
+from AcademicSetup.models import Regulation
+
+User = get_user_model()
+
+
+class StudentExcelUploadSerializer(serializers.Serializer):
+    file = serializers.FileField()
+
     @transaction.atomic
+    def save(self, **kwargs):
+        workbook = load_workbook(self.validated_data["file"])
+        sheet = workbook.active
+
+        created = 0
+        skipped = []
+        errors = []
+
+        for row_no, row in enumerate(
+            sheet.iter_rows(min_row=2, values_only=True), start=2
+        ):
+            try:
+                if len(row) < 10:
+                    errors.append(
+                        {"row": row_no, "error": "Insufficient columns in Excel row"}
+                    )
+                    continue
+
+                (
+                    roll_no,
+                    student_name,
+                    student_email,
+                    student_gender,
+                    student_date_of_birth,
+                    student_phone_number,
+                    parent_name,
+                    parent_phone_number,
+                    regulation_code,
+                    dept_code,
+                ) = row[:10]
+
+                if not roll_no:
+                    continue
+
+                if Student.objects.filter(roll_no=roll_no).exists():
+                    skipped.append(
+                        {"row": row_no, "roll_no": roll_no, "error": "Already exists"}
+                    )
+                    continue
+
+                department = Department.objects.filter(
+                    dept_code__iexact=dept_code
+                ).first()
+                if not department:
+                    errors.append(
+                        {"row": row_no, "roll_no": roll_no, "error": "Invalid department"}
+                    )
+                    continue
+
+                regulation = Regulation.objects.filter(
+                    regulation_code__iexact=regulation_code
+                ).first()
+                if not regulation:
+                    errors.append(
+                        {"row": row_no, "roll_no": roll_no, "error": "Invalid regulation"}
+                    )
+                    continue
+
+                semester = Semester.objects.filter(
+                    degree=department.degree
+                ).order_by("sem_number").first()
+                if not semester:
+                    errors.append(
+                        {"row": row_no, "roll_no": roll_no, "error": "Semester not found"}
+                    )
+                    continue
+
+                # =============================
+                # AUTH USER CREATION (THIS NOW RUNS)
+                # =============================
+                user, created_user = User.objects.get_or_create(
+                    username=roll_no,
+                    defaults={"email": student_email}
+                )
+
+                user.role = "STUDENT"
+                user.is_active = True
+
+                if created_user:
+                    user.set_password(roll_no)
+
+                user.save()
+
+                # =============================
+                # STUDENT CREATION
+                # =============================
+                Student.objects.create(
+                    user=user,
+                    roll_no=roll_no,
+                    student_name=student_name,
+                    student_email=student_email,
+                    student_gender=student_gender,
+                    student_date_of_birth=student_date_of_birth,
+                    student_phone_number=str(student_phone_number),
+                    parent_name=parent_name,
+                    parent_phone_number=str(parent_phone_number),
+                    batch=regulation.batch,
+                    degree=department.degree,
+                    department=department,
+                    regulation=regulation,
+                    semester=semester,
+                    is_active=True,
+                )
+
+                created += 1
+
+            except Exception as e:
+                errors.append(
+                    {
+                        "row": row_no,
+                        "roll_no": roll_no if row else None,
+                        "error": str(e),
+                    }
+                )
+
+        return {
+            "created": created,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+
+class StudentPatchSerializer(serializers.Serializer):
+    student_name = serializers.CharField(required=False)
+    student_email = serializers.EmailField(required=False)
+    student_gender = serializers.CharField(required=False)
+    student_date_of_birth = serializers.DateField(required=False)
+    student_phone_number = serializers.CharField(required=False)
+    parent_name = serializers.CharField(required=False)
+    parent_phone_number = serializers.CharField(required=False)
+    batch = serializers.CharField(required=False)
+
     def update(self, instance, validated_data):
-        mappings_data = validated_data.pop('mappings', None)
-        employee_id = validated_data.get('employee_id', instance.employee_id)
-        email = validated_data.get('email', instance.email)
+        field_mapping = {
+            "student_name": "name",
+            "student_email": "email",
+            "student_gender": "gender",
+            "student_date_of_birth": "dob",
+            "student_phone_number": "student_mobile",
+            "parent_phone_number": "parent_mobile",
+        }
 
-        # Update associated User
-        user = instance.user
-        user.username = employee_id
-        user.email = email
-        user.set_password(employee_id)
-        user.save()
+        for field, value in validated_data.items():
+            model_field = field_mapping.get(field, field)
+            setattr(instance, model_field, value)
 
-        # Update Faculty
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
         instance.save()
-
-        # Update Mappings if provided
-        if mappings_data is not None:
-            instance.mappings.all().delete()
-            for mapping in mappings_data:
-                FacultyMapping.objects.create(faculty=instance, **mapping)
-
         return instance
+
+
 
 # ==================================================================================
 # DEPARTMENT ADMIN ASSIGNMENT SERIALIZER

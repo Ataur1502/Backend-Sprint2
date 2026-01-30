@@ -1,35 +1,82 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import SchoolViewSet, DegreeView, DepartmentAPIView, SemesterAPIView, RegulationAPIView
 
-# ----------------------------
-# Router for ViewSets
-# ----------------------------
+from .views import (
+    SchoolViewSet,
+    DegreeView,
+    DepartmentAPIView,
+    SemesterAPIView,
+    RegulationAPIView
+)
+
+# -------------------------------------------------
+# Router for ViewSets (School)
+# -------------------------------------------------
 router = DefaultRouter()
 router.register(r'schools', SchoolViewSet, basename='school')
 
-# ----------------------------
-# URL patterns
-# ----------------------------
+# -------------------------------------------------
+# URL Patterns
+# -------------------------------------------------
 urlpatterns = [
-    # School CRUD (ViewSet)
+    # ---------------------------------------------
+    # School APIs (ViewSet)
+    # ---------------------------------------------
     path('', include(router.urls)),
 
-    # Degree APIs (APIView)
-    path('degrees/', DegreeView.as_view(), name='degree-standalone'), # Added for direct access
-    path('degrees/<uuid:degree_id>/', DegreeView.as_view(), name='degree-put-standalone'), # Added for direct access
-    path('schools/<uuid:school_id>/degrees/', DegreeView.as_view(), name='degree-get-post'),
-    path('schools/<uuid:school_id>/degrees/<uuid:degree_id>/', DegreeView.as_view(), name='degree-put'),
+    # ---------------------------------------------
+    # Degree APIs (STRICTLY UNDER SCHOOL)
+    # ---------------------------------------------
+    path(
+        'schools/<uuid:school_id>/degrees/',
+        DegreeView.as_view(),                               #GET & POST
+        name='degree-list-create'
+    ),
+    path(
+        'schools/<uuid:school_id>/degrees/<uuid:degree_id>/',
+        DegreeView.as_view(),                                       #PUT
+        name='degree-update'
+    ),
 
-    # Dept creation API's
-    path('departments/', DepartmentAPIView.as_view()),               # GET, POST
-    path('departments/<uuid:dept_id>/', DepartmentAPIView.as_view()), # PUT
+    # ---------------------------------------------
+    # Department APIs
+    # ---------------------------------------------
+    path(
+        'departments/',
+        DepartmentAPIView.as_view(),
+        name='department-list-create'
+    ),
+    path(
+        'departments/<uuid:dept_id>/',
+        DepartmentAPIView.as_view(),
+        name='department-update'
+    ),
 
-    # Semester creation API's
-    path('semesters/', SemesterAPIView.as_view()),               # GET, POST
-    path('semesters/<uuid:sem_id>/', SemesterAPIView.as_view()), # PUT
+    # ---------------------------------------------
+    # Semester APIs (READ-ONLY ENTITY)
+    # ---------------------------------------------
+    path(
+        'semesters/',
+        SemesterAPIView.as_view(),
+        name='semester-list'
+    ),
+    path(
+        'semesters/<uuid:sem_id>/',
+        SemesterAPIView.as_view(),
+        name='semester-update'
+    ),
 
-    # Regulation creation API's
-    path('regulations/', RegulationAPIView.as_view(), name='regulation-list-create'),
-    path('regulations/<uuid:regulation_id>/', RegulationAPIView.as_view(), name='regulation-detail'),
+    # ---------------------------------------------
+    # Regulation APIs
+    # ---------------------------------------------
+    path(
+        'regulations/',
+        RegulationAPIView.as_view(),
+        name='regulation-list-create'
+    ),
+    path(
+        'regulations/<uuid:regulation_id>/',
+        RegulationAPIView.as_view(),
+        name='regulation-update'
+    ),
 ]

@@ -33,48 +33,79 @@ def _get_mfa_user(email):
         return None, 'Role not authorized for MFA'
     return user, None
 
+
 def send_otp_email(email):
-    """Create an MFASession and send a verification OTP via email.
-    Primarily used for forgot-password flow.
+    """
+    Create an MFASession and send a verification OTP via email.
+    Used for forgot-password flow.
     Returns (success: bool, message: str, mfa_id: str|None)
     """
+
     user, error = _get_mfa_user(email)
     if error:
         return False, error, None
 
     now = timezone.now()
-    latest = MFASession.objects.filter(user=user).order_by('-created_at').first()
-    if latest and latest.resend_count >= 5 and latest.last_resend_at and (now - latest.last_resend_at) < timedelta(minutes=5):
+
+    # Get latest MFA session
+    latest = MFASession.objects.filter(
+        user=user,
+        is_verified=False
+    ).order_by('-created_at').first()
+
+    # Resend limit check (max 5 resends in 5 minutes)
+    if (
+        latest
+        and latest.resend_count >= 5
+        and latest.last_resend_at
+        and (now - latest.last_resend_at) < timedelta(minutes=5)
+    ):
         return False, 'Resend limit reached. Please try again later.', None
 
+    # ❌ Invalidate all previous OTPs
+    MFASession.objects.filter(
+        user=user,
+        is_verified=False
+    ).delete()
+
+    # Generate OTP
     otp = f"{secrets.randbelow(10**6):06d}"
+
     try:
+        # ✅ Create NEW OTP session
         mfa = MFASession.objects.create(
             user=user,
             otp=otp,
-            expires_at=now + timedelta(minutes=5)
+            expires_at=now + timedelta(minutes=5),
+            resend_count=(latest.resend_count + 1) if latest else 1,
+            last_resend_at=now
         )
 
         subject = 'Your Verification OTP'
         message = f"Your OTP is: {otp}\nIt will expire in 5 minutes."
-        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', settings.EMAIL_HOST_USER)
+        from_email = getattr(
+            settings,
+            'DEFAULT_FROM_EMAIL',
+            settings.EMAIL_HOST_USER
+        )
         recipient = [user.email]
 
-        send_mail(subject, message, from_email, recipient, fail_silently=False)
-
-        if latest:
-            latest.resend_count += 1
-            latest.last_resend_at = now
-            latest.save()
+        send_mail(
+            subject,
+            message,
+            from_email,
+            recipient,
+            fail_silently=False
+        )
 
         return True, 'OTP sent to email', str(mfa.id)
+
     except Exception as e:
         try:
             mfa.delete()
         except Exception:
             pass
         return False, str(e), None
-
 
 def _get_duo_handles(user):
     """Return a priority-ordered list of potential Duo usernames for the user.
