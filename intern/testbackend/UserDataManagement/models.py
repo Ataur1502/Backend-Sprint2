@@ -77,6 +77,12 @@ from Creation.models import Degree, Department, Regulation, Semester
 
 
 class Student(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='student_profile',
+        null=True, blank=True # Nullable for legacy data, but will be populated for new uploads
+    )
     # Django will automatically create: id = AutoField(primary_key=True)
     student_id = models.UUIDField(
             primary_key=True,

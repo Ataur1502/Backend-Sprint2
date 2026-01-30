@@ -14,8 +14,13 @@ from Creation.models import School, Department,Degree
 from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
-
-
+from django.db.models import Count, Q, F
+from .serializers import (
+    FacultySerializer, 
+    StudentPatchSerializer, 
+    DepartmentAdminAssignmentSerializer,
+    UserRoleSerializer
+)
 
 
 '''
@@ -607,16 +612,94 @@ class FacultySearchView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Search by full_name or employee_id (case-insensitive)
+        # Search by faculty_name or employee_id (case-insensitive)
         faculty = Faculty.objects.filter(
             is_active=True
         ).filter(
-            Q(full_name__icontains=search_query) |
+            Q(faculty_name__icontains=search_query) |
             Q(employee_id__icontains=search_query)
         ).values(
-            'faculty_id', 'full_name', 'employee_id', 'email'
+            'id', 'faculty_name', 'employee_id', 'faculty_email'
         )[:20]  # Limit to 20 results
         
         return Response(list(faculty))
-    
-    
+
+# ==================================================================================
+# ROLES DASHBOARD VIEWS (FEATURE 4)
+# ==================================================================================
+
+class RolesSummaryView(APIView):
+    """
+    API for the Roles Dashboard Summary.
+    Returns counts for Faculty, Campus Admins (CA), and Students.
+    """
+    permission_classes = [IsAuthenticated, IsCollegeAdmin]
+
+    def get(self, request):
+        counts = User.objects.aggregate(
+            total_students=Count('id', filter=Q(role='STUDENT')),
+            total_faculty=Count('id', filter=Q(role='FACULTY')),
+            total_ca=Count('id', filter=Q(role__in=['COLLEGE_ADMIN', 'ACADEMIC_COORDINATOR']))
+        )
+        return Response(counts)
+
+class RolesListView(APIView):
+    """
+    API for the Roles Dashboard Detail List.
+    Supports filtering by role and academic hierarchy (for students).
+    """
+    permission_classes = [IsAuthenticated, IsCollegeAdmin]
+
+    def get(self, request):
+        role_filter = request.query_params.get('role')
+        school_id = request.query_params.get('school_id')
+        degree_id = request.query_params.get('degree_id')
+        dept_id = request.query_params.get('department_id')
+        batch = request.query_params.get('batch')
+        search = request.query_params.get('search')
+
+        queryset = User.objects.all().select_related(
+            'faculty_profile', 
+            'student_profile', 
+            'student_profile__department', 
+            'student_profile__degree', 
+            'student_profile__degree__school'
+        )
+
+        # Role Filter
+        if role_filter and role_filter != 'ALL':
+            if role_filter == 'CA':
+                queryset = queryset.filter(role__in=['COLLEGE_ADMIN', 'ACADEMIC_COORDINATOR'])
+            else:
+                queryset = queryset.filter(role=role_filter)
+
+        # Academic Filters (Only for Students or if role filter is broad)
+        is_student_view = role_filter == 'STUDENT'
+        is_broad_view = not role_filter or role_filter == 'ALL'
+
+        if is_student_view or is_broad_view:
+            # We apply student-specific filters if they are provided
+            if school_id:
+                queryset = queryset.filter(Q(student_profile__degree__school_id=school_id) | ~Q(role='STUDENT'))
+            if degree_id:
+                queryset = queryset.filter(Q(student_profile__degree_id=degree_id) | ~Q(role='STUDENT'))
+            if dept_id:
+                queryset = queryset.filter(Q(student_profile__department_id=dept_id) | ~Q(role='STUDENT'))
+            if batch:
+                queryset = queryset.filter(Q(student_profile__batch=batch) | ~Q(role='STUDENT'))
+            
+            # If we are specifically filtering for students, ensure we only get students
+            if is_student_view:
+                queryset = queryset.filter(role='STUDENT')
+
+        # Search
+        if search:
+            queryset = queryset.filter(
+                Q(username__icontains=search) |
+                Q(email__icontains=search) |
+                Q(faculty_profile__faculty_name__icontains=search) |
+                Q(student_profile__student_name__icontains=search)
+            )
+
+        serializer = UserRoleSerializer(queryset[:100], many=True) # Limit to 100 for performance
+        return Response(serializer.data)

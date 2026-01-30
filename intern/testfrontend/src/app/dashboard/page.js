@@ -68,6 +68,272 @@ const SlotManager = ({ formData, setFormData }) => {
 };
 
 // ==================================================================================
+// ROLES DASHBOARD COMPONENT (FEATURE 4)
+// ==================================================================================
+// This is the "Principal Dashboard" that provides a summary of all user roles.
+// Features:
+// 1. Summary Cards: Shows counts for CA, Faculty, and Students.
+// 2. Filterable List: Detailed view of all users and their roles.
+// 3. Academic Filters: Batch, School, Degree, Department filters for Students.
+// 4. Search: Search by name, email, or employee/roll ID.
+// ==================================================================================
+
+const RolesDashboard = () => {
+    const [summary, setSummary] = useState({ total_students: 0, total_faculty: 0, total_ca: 0 });
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filters, setFilters] = useState({
+        role: 'ALL',
+        school_id: '',
+        degree_id: '',
+        department_id: '',
+        batch: '',
+        search: ''
+    });
+
+    const [schools, setSchools] = useState([]);
+    const [degrees, setDegrees] = useState([]);
+    const [departments, setDepartments] = useState([]);
+
+    useEffect(() => {
+        fetchSummary();
+        fetchSchools();
+        fetchRoles();
+    }, []);
+
+    useEffect(() => {
+        fetchRoles();
+    }, [filters.role, filters.school_id, filters.degree_id, filters.department_id, filters.batch]);
+
+    const fetchSummary = async () => {
+        try {
+            const res = await api.get('/users/roles/summary/');
+            setSummary(res.data);
+        } catch (err) { console.error('Error fetching summary:', err); }
+    };
+
+    const fetchSchools = async () => {
+        try {
+            const res = await api.get('/create/schools/');
+            setSchools(res.data);
+        } catch (err) { console.error('Error fetching schools:', err); }
+    };
+
+    const fetchRoles = async () => {
+        setLoading(true);
+        try {
+            const queryParams = new URLSearchParams();
+            if (filters.role !== 'ALL') queryParams.append('role', filters.role);
+            if (filters.school_id) queryParams.append('school_id', filters.school_id);
+            if (filters.degree_id) queryParams.append('degree_id', filters.degree_id);
+            if (filters.department_id) queryParams.append('department_id', filters.department_id);
+            if (filters.batch) queryParams.append('batch', filters.batch);
+            if (filters.search) queryParams.append('search', filters.search);
+
+            const res = await api.get(`/users/roles/list/?${queryParams.toString()}`);
+            setUsers(res.data);
+        } catch (err) { console.error('Error fetching roles:', err); }
+        finally { setLoading(false); }
+    };
+
+    const handleSchoolChange = async (schoolId) => {
+        setFilters({ ...filters, school_id: schoolId, degree_id: '', department_id: '' });
+        if (schoolId) {
+            try {
+                const res = await api.get(`/users/dept-admin/degrees-for-school/?school_id=${schoolId}`);
+                setDegrees(res.data);
+                setDepartments([]);
+            } catch (err) { console.error('Error fetching degrees:', err); }
+        } else {
+            setDegrees([]);
+            setDepartments([]);
+        }
+    };
+
+    const handleDegreeChange = async (degreeId) => {
+        setFilters({ ...filters, degree_id: degreeId, department_id: '' });
+        if (degreeId) {
+            try {
+                const res = await api.get(`/users/dept-admin/departments-for-degree/?degree_id=${degreeId}`);
+                setDepartments(res.data);
+            } catch (err) { console.error('Error fetching departments:', err); }
+        } else {
+            setDepartments([]);
+        }
+    };
+
+    const debounceSearch = useRef(null);
+    const handleSearchChange = (val) => {
+        setFilters({ ...filters, search: val });
+        if (debounceSearch.current) clearTimeout(debounceSearch.current);
+        debounceSearch.current = setTimeout(() => {
+            fetchRoles();
+        }, 500);
+    };
+
+    return (
+        <div className="space-y-6">
+            {/* Summary Row */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <SummaryCard icon={Users} label="Total Faculty" value={summary.total_faculty} color="blue" />
+                <SummaryCard icon={ShieldCheck} label="Campus Admins" value={summary.total_ca} color="indigo" />
+                <SummaryCard icon={GraduationCap} label="Total Students" value={summary.total_students} color="green" />
+            </div>
+
+            {/* Filters Section */}
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-50 pb-4">
+                    <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <UserCheck className="text-blue-500" size={20} /> User Roles Directory
+                    </h2>
+                    <div className="flex gap-2">
+                        {['ALL', 'CA', 'FACULTY', 'STUDENT'].map(r => (
+                            <button
+                                key={r}
+                                onClick={() => setFilters({ ...filters, role: r })}
+                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${filters.role === r
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    }`}
+                            >
+                                {r === 'CA' ? 'Admins' : r.charAt(0) + r.slice(1).toLowerCase()}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    <div className="lg:col-span-2 relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Search by name, ID or email..."
+                            className="input-field pl-10 text-xs py-2"
+                            value={filters.search}
+                            onChange={(e) => handleSearchChange(e.target.value)}
+                        />
+                    </div>
+
+                    {filters.role === 'STUDENT' && (
+                        <>
+                            <select className="input-field text-xs py-2" value={filters.school_id} onChange={(e) => handleSchoolChange(e.target.value)}>
+                                <option value="">Select School</option>
+                                {schools.map(s => <option key={s.school_id} value={s.school_id}>{s.school_name}</option>)}
+                            </select>
+                            <select className="input-field text-xs py-2" value={filters.degree_id} onChange={(e) => handleDegreeChange(e.target.value)} disabled={!filters.school_id}>
+                                <option value="">Select Degree</option>
+                                {degrees.map(d => <option key={d.degree_id} value={d.degree_id}>{d.degree_name}</option>)}
+                            </select>
+                            <select className="input-field text-xs py-2" value={filters.department_id} onChange={(e) => setFilters({ ...filters, department_id: e.target.value })} disabled={!filters.degree_id}>
+                                <option value="">Select Dept</option>
+                                {departments.map(d => <option key={d.dept_id} value={d.dept_id}>{d.dept_name}</option>)}
+                            </select>
+                            <input
+                                type="text"
+                                placeholder="Batch (e.g. 2025)"
+                                className="input-field text-xs py-2"
+                                value={filters.batch}
+                                onChange={(e) => setFilters({ ...filters, batch: e.target.value })}
+                            />
+                        </>
+                    )}
+                </div>
+            </div>
+
+            {/* Table Section */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 border-b border-gray-100">
+                            <tr>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">User Details</th>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Role</th>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Profile Info</th>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">Identifier</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan="4" className="px-6 py-12 text-center">
+                                        <Loader2 className="animate-spin text-blue-500 mx-auto" size={32} />
+                                        <p className="text-xs text-gray-400 mt-2 font-medium">Crunching user data...</p>
+                                    </td>
+                                </tr>
+                            ) : users.length > 0 ? (
+                                users.map(user => (
+                                    <tr key={user.id} className="hover:bg-gray-50/50 transition-colors group">
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-xs uppercase group-hover:scale-110 transition-transform">
+                                                    {(user.profile_details?.name?.[0] || user.username[0]).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-gray-800">{user.profile_details?.name || 'No Name Provided'}</p>
+                                                    <p className="text-[10px] text-gray-400 font-medium">{user.email}</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${user.role === 'STUDENT' ? 'bg-green-100 text-green-700' :
+                                                user.role === 'FACULTY' ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-indigo-100 text-indigo-700'
+                                                }`}>
+                                                {user.role}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <p className="text-xs text-gray-500 font-medium">{user.profile_details?.details || 'N/A'}</p>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <span className="text-[10px] font-mono font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                                                {user.profile_details?.id || user.username}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan="4" className="px-6 py-12 text-center">
+                                        <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                            <Search className="text-gray-300" size={32} />
+                                        </div>
+                                        <p className="text-sm font-bold text-gray-400">No matching users found</p>
+                                        <p className="text-xs text-gray-300 mt-1">Try adjusting your filters or search term</p>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const SummaryCard = ({ icon: Icon, label, value, color }) => {
+    const colors = {
+        blue: 'bg-blue-600',
+        indigo: 'bg-indigo-600',
+        green: 'bg-emerald-600'
+    };
+    return (
+        <div className={`${colors[color]} rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group`}>
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-125 transition-transform duration-500">
+                <Icon size={80} />
+            </div>
+            <div className="relative z-10">
+                <p className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">{label}</p>
+                <div className="flex items-end gap-2">
+                    <h3 className="text-4xl font-bold">{value}</h3>
+                    <p className="text-[10px] font-medium opacity-60 mb-2 underline decoration-white/20">TOTAL USERS</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ==================================================================================
 // DEPARTMENT ADMIN ASSIGNMENT COMPONENT
 // ==================================================================================
 // This component allows Campus Admins to assign faculty members as Department Admins.
@@ -221,9 +487,9 @@ const DepartmentAdminManager = () => {
 
     // Toggle faculty selection (for multi-select)
     const toggleFaculty = (faculty) => {
-        const exists = selectedFaculty.find(f => f.faculty_id === faculty.faculty_id);
+        const exists = selectedFaculty.find(f => f.id === faculty.id);
         if (exists) {
-            setSelectedFaculty(selectedFaculty.filter(f => f.faculty_id !== faculty.faculty_id));
+            setSelectedFaculty(selectedFaculty.filter(f => f.id !== faculty.id));
         } else {
             setSelectedFaculty([...selectedFaculty, faculty]);
         }
@@ -262,7 +528,7 @@ const DepartmentAdminManager = () => {
         selectedFaculty.forEach(faculty => {
             selectedDepartments.forEach(deptId => {
                 assignmentsToCreate.push({
-                    faculty_id: faculty.faculty_id,
+                    faculty_id: faculty.id,
                     school_id: selectedSchool,
                     degree_id: selectedDegree,
                     department_id: deptId
@@ -487,16 +753,16 @@ const DepartmentAdminManager = () => {
                         {facultySearchResults.length > 0 && (
                             <div className="mt-2 border border-blue-100 rounded-lg max-h-48 overflow-y-auto">
                                 {facultySearchResults.map(faculty => (
-                                    <label key={faculty.faculty_id} className="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
+                                    <label key={faculty.id} className="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0">
                                         <input
                                             type="checkbox"
-                                            checked={selectedFaculty.some(f => f.faculty_id === faculty.faculty_id)}
+                                            checked={selectedFaculty.some(f => f.id === faculty.id)}
                                             onChange={() => toggleFaculty(faculty)}
                                             className="w-4 h-4 accent-[var(--primary)]"
                                         />
                                         <div className="flex-1">
-                                            <p className="text-sm font-semibold">{faculty.full_name}</p>
-                                            <p className="text-xs text-gray-500">{faculty.employee_id} • {faculty.email}</p>
+                                            <p className="text-sm font-semibold">{faculty.faculty_name}</p>
+                                            <p className="text-xs text-gray-500">{faculty.employee_id} • {faculty.faculty_email}</p>
                                         </div>
                                     </label>
                                 ))}
@@ -509,8 +775,8 @@ const DepartmentAdminManager = () => {
                                 <p className="text-xs font-bold mb-2 text-green-800">Selected Faculty ({selectedFaculty.length})</p>
                                 <div className="flex flex-wrap gap-2">
                                     {selectedFaculty.map(faculty => (
-                                        <span key={faculty.faculty_id} className="inline-flex items-center gap-1 bg-white px-3 py-1 rounded-full text-xs border border-green-300">
-                                            {faculty.full_name}
+                                        <span key={faculty.id} className="inline-flex items-center gap-1 bg-white px-3 py-1 rounded-full text-xs border border-green-300">
+                                            {faculty.faculty_name}
                                             <X
                                                 size={14}
                                                 className="cursor-pointer text-red-500 hover:text-red-700"
@@ -1129,10 +1395,18 @@ export default function Dashboard() {
     useEffect(() => {
         if (!loading && !user) {
             router.push('/login');
+            return;
+        }
+
+        if (!loading && user) {
+            const allowedRoles = ['COLLEGE_ADMIN'];
+            if (!allowedRoles.includes(user.role)) {
+                router.push('/welcome');
+            }
         }
     }, [user, loading, router]);
 
-    if (loading || !user) {
+    if (loading || !user || user.role !== 'COLLEGE_ADMIN') {
         return <div className="min-h-screen flex items-center justify-center text-[var(--primary)]"><Loader2 className="animate-spin" size={40} /></div>;
     }
 
@@ -1215,6 +1489,12 @@ export default function Dashboard() {
                         icon={UserCheck}
                         label="Department Admin"
                     />
+                    <TabButton
+                        active={activeTab === 'roles'}
+                        onClick={() => setActiveTab('roles')}
+                        icon={ShieldCheck}
+                        label="Roles Dashboard"
+                    />
                 </div>
 
                 <div className="p-4 border-t border-[var(--border)]">
@@ -1246,6 +1526,9 @@ export default function Dashboard() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2 }}
                 >
+                    {activeTab === 'roles' && (
+                        <RolesDashboard />
+                    )}
                     {activeTab === 'schools' && (
                         <DataManager
                             title="Schools"
@@ -1510,8 +1793,8 @@ export default function Dashboard() {
                             title="Faculty Management"
                             endpoint="/users/faculty/"
                             icon={Users}
-                            idField="faculty_id"
-                            displayField="full_name"
+                            idField="id"
+                            displayField="faculty_name"
                             renderHeaderExtra={({ fetchData }) => (
                                 <BulkUploadButton
                                     endpoint="/users/faculty/upload-bulk/"
@@ -1519,9 +1802,9 @@ export default function Dashboard() {
                                 />
                             )}
                             fields={[
-                                { name: 'full_name', label: 'Full Name', required: true },
+                                { name: 'faculty_name', label: 'Full Name', required: true },
                                 { name: 'employee_id', label: 'Employee ID', required: true },
-                                { name: 'email', label: 'Email Address', required: true, type: 'email' },
+                                { name: 'faculty_email', label: 'Email Address', required: true, type: 'email' },
                                 { name: 'mobile_no', label: 'Mobile Number', required: false },
                                 { name: 'dob', label: 'Date of Birth', required: false, type: 'date' },
                                 {
