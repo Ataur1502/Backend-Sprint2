@@ -22,3 +22,19 @@ class DocumentStatusUpdateSerializer(serializers.Serializer):
         'REJECTED'
     ])
     remark = serializers.CharField(required=False, allow_blank=True)
+
+class DocumentRequestHistorySerializer(serializers.ModelSerializer):
+    updated_by_email = serializers.EmailField(
+        source='updated_by.email',
+        read_only=True
+    )
+
+    class Meta:
+        model = DocumentRequestHistory
+        fields = [
+            'history_id',
+            'status',
+            'remark',
+            'updated_by_email',
+            'updated_at'
+        ]

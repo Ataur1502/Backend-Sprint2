@@ -6,7 +6,8 @@ from rest_framework import status
 from .models import DocumentRequest, DocumentRequestHistory
 from .serializers import (
     DocumentRequestSerializer,
-    DocumentStatusUpdateSerializer
+    DocumentStatusUpdateSerializer,
+    DocumentRequestHistorySerializer
 )
 from Creation.permissions import IsCollegeAdmin
 
@@ -63,3 +64,26 @@ class AdminDocumentRequestUpdateView(APIView):
             {"message": "Request status updated"},
             status=status.HTTP_200_OK
         )
+
+class DocumentRequestHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, request_id):
+        try:
+            doc_request = DocumentRequest.objects.get(request_id=request_id)
+        except DocumentRequest.DoesNotExist:
+            return Response(
+                {"detail": "Request not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Students can only see their own requests
+        if request.user.role == 'STUDENT' and doc_request.student != request.user:
+            return Response(
+                {"detail": "Not authorized"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        history = doc_request.history.order_by('updated_at')
+        serializer = DocumentRequestHistorySerializer(history, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
