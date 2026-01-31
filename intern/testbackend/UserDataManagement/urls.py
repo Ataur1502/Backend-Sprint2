@@ -9,13 +9,15 @@ from .views import (
     StudentDetailAPIView,
     DegreesForSchoolView,
     DepartmentsForDegreeView,
-    FacultySearchView
-
-
+    FacultySearchView,
+    RolesSummaryView,
+    RolesListView,
+    DepartmentAdminAssignmentViewSet
 )
 
 router = DefaultRouter()
 router.register(r'faculty', FacultyViewSet, basename='faculty')
+router.register(r'dept-admin', DepartmentAdminAssignmentViewSet, basename='dept-admin')
 
 urlpatterns = [
 
@@ -63,13 +65,11 @@ urlpatterns = [
     path('dept-admin/departments-for-degree/', DepartmentsForDegreeView.as_view(), name='departments-for-degree'),
     path('dept-admin/search-faculty/', FacultySearchView.as_view(), name='search-faculty'),
     
+    # Roles Dashboard (Feature 4)
+    path('roles/summary/', RolesSummaryView.as_view(), name='roles-summary'),
+    path('roles/list/', RolesListView.as_view(), name='roles-list'),
     # ROUTER (KEEP THIS LAST)
     path('', include(router.urls)),
 
 ]
-
-    
-
-
-    
 

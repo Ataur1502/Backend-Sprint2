@@ -83,6 +83,14 @@ class Student(models.Model):
             default=uuid.uuid4,
             editable=False
         )
+    
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='student_profile',
+        null=True,
+        blank=True
+    )
     roll_no = models.CharField(max_length=30)
 
     # ===== Student details (matches serializer & Excel) =====

@@ -39,7 +39,6 @@ class DegreeSerializer(serializers.ModelSerializer):
     'degree_id',
     'school',
     'number_of_semesters',
-    'degree_code'
 ]
 
     def create(self, validated_data):
@@ -122,7 +121,6 @@ class SemesterSerializer(serializers.ModelSerializer):
             'sem_number',
             'sem_name',
             'year',
-            
             'degree',
             'department',
         )

@@ -8,7 +8,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from .models import Faculty, FacultyMapping, Student,DepartmentAdminAssignment
-from Creation.models import School, Department,Degree, Department, Regulation
+from Creation.models import School, Department,Degree, Department, Regulation, Semester
 
 User = get_user_model()
 
@@ -135,31 +135,51 @@ creates Students using .Xlsx file
 """
 
 
-from rest_framework import serializers
-from django.db import transaction
-from openpyxl import load_workbook
-
-from .models import Student
-from Creation.models import Department, Regulation, Semester
-
-from rest_framework import serializers
-from django.db import transaction
-from openpyxl import load_workbook
-
-from .models import Student
-from Creation.models import Department, Regulation, Semester
-
-
-from rest_framework import serializers
-from django.db import transaction
-from openpyxl import load_workbook
-from django.contrib.auth import get_user_model
-
-from .models import Student
-from AcademicSetup.models import Department, Semester
-from AcademicSetup.models import Regulation
-
 User = get_user_model()
+
+class UserRoleSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the Roles Dashboard list.
+    Unified view for all user roles with their associated profiles.
+    """
+    profile_details = serializers.SerializerMethodField(read_only=True)
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'role', 'role_display', 'profile_details']
+
+    def get_profile_details(self, obj):
+        # Faculty Profile
+        if obj.role == 'FACULTY':
+            faculty = getattr(obj, 'faculty_profile', None)
+            if faculty:
+                return {
+                    'name': faculty.faculty_name,
+                    'id': faculty.employee_id,
+                    'details': f"Faculty ({faculty.faculty_gender})"
+                }
+        
+        # Student Profile
+        if obj.role == 'STUDENT':
+            student = getattr(obj, 'student_profile', None)
+            if student:
+                return {
+                    'name': student.student_name,
+                    'id': student.roll_no,
+                    'details': f"Batch: {student.batch}, Dept: {student.department.dept_code if student.department else 'N/A'}",
+                    # Academic hierarchy for filtering support in frontend
+                    'school_id': str(student.degree.school.id) if student.degree and student.degree.school else None,
+                    'degree_id': str(student.degree.id) if student.degree else None,
+                    'department_id': str(student.department.id) if student.department else None,
+                    'batch_name': student.batch
+                }
+        
+        return {
+            'name': obj.get_full_name() or obj.username,
+            'id': obj.username,
+            'details': 'Administrator'
+        }
 
 
 class StudentExcelUploadSerializer(serializers.Serializer):
