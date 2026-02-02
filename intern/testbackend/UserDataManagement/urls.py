@@ -42,7 +42,7 @@ urlpatterns = [
         name="student-detail",
     ),
 
-                                #Faculty creation
+    #Faculty creation
     #  BULK UPLOAD (MUST COME FIRST)
     path(
         'faculty/upload-bulk/',

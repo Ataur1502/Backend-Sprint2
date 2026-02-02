@@ -322,83 +322,19 @@ class StudentExcelUploadAPIView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
     def post(self, request):
-        file = request.FILES.get("file")
-        if not file:
-            return Response(
-                {"error": "Excel file is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        serializer = StudentExcelUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        workbook = openpyxl.load_workbook(file)
-        sheet = workbook.active
-
-        created = 0
-        skipped = 0
-        errors = []
-
-        for row_no, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-            try:
-                (
-                    roll_no,
-                    student_name,
-                    student_email,
-                    student_gender,
-                    dob,
-                    phone,
-                    parent_name,
-                    parent_phone,
-                    regulation_code,
-                    dept_code,
-                ) = row
-
-                # --- CREATE USER (AUTH) ---
-                user, user_created = User.objects.get_or_create(
-                    username=roll_no,
-                    defaults={"email": student_email}
-                )
-
-                user.role = "STUDENT"
-                user.is_active = True
-
-                if user_created:
-                    user.set_password(roll_no)
-
-                user.save()
-
-                # --- CREATE STUDENT ---
-                Student.objects.get_or_create(
-                    roll_no=roll_no,
-                    defaults={
-                        "user": user,
-                        "student_name": student_name,
-                        "student_email": student_email,
-                        "student_gender": student_gender,
-                        "student_date_of_birth": dob,
-                        "student_phone_number": phone,
-                        "parent_name": parent_name,
-                        "parent_phone_number": parent_phone,
-                        # regulation & department resolution here
-                    }
-                )
-
-                created += 1
-
-            except Exception as e:
-                skipped += 1
-                errors.append({
-                    "row": row_no,
-                    "error": str(e)
-                })
+        result = serializer.save()
 
         return Response(
             {
-                "status": "SUCCESS" if not errors else "PARTIAL_SUCCESS",
-                "created": created,
-                "skipped": skipped,
-                "errors": errors,
+                "status": "SUCCESS" if not result["errors"] else "PARTIAL_SUCCESS",
+                **result
             },
             status=status.HTTP_201_CREATED
         )
+
 
 # ======================================================
 # BULK GET – ALL STUDENTS
