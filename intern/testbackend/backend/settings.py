@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'AcademicSetup',
     'UserDataManagement',
     'StudentServices',
+    'CourseConfiguration',
 ]
 
 MIDDLEWARE = [

@@ -1,29 +1,22 @@
 import uuid
 from django.db import models
-from django.core.validators import MinValueValidator
-
 
 # ------------------------------------------
 # SCHOOL 
 # ------------------------------------------
 class School(models.Model):
-    # ... (existing fields)
     school_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
-
-    school_name = models.CharField(
-        max_length=255
-    )
-
-    school_code = models.CharField(
-        max_length=50,
-        unique=True
-    )
-
+    school_name = models.CharField(max_length=255)
+    school_code = models.CharField(max_length=50, unique=True)
     
+    # Existing fields in DB
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.school_name} ({self.school_code})"
@@ -38,50 +31,46 @@ class Degree(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-
-    degree_name = models.CharField(
-        max_length=255
-    )
-
-    degree_code = models.CharField(
-        max_length=50,
-        unique=True
-    )
-
-    degree_duration = models.PositiveIntegerField(
-        help_text="Duration in years"
-    )
-
+    degree_name = models.CharField(max_length=255)
+    degree_code = models.CharField(max_length=50, unique=True)
+    degree_duration = models.PositiveIntegerField(help_text="Duration in years")
     number_of_semesters = models.PositiveIntegerField()
-
     school = models.ForeignKey(
         School,
         on_delete=models.CASCADE,
         related_name="degrees"
     )
 
+    # Existing fields in DB
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     def __str__(self):
         return f"{self.degree_name} ({self.degree_code})"
 
 
-#Department creation
-
-
+# ------------------------------------------
+# Department creation
+# ------------------------------------------
 class Department(models.Model):
     dept_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
-
     degree = models.ForeignKey(
-        'Degree',
+        Degree,
         on_delete=models.CASCADE,
         related_name='departments'
     )
-
     dept_code = models.CharField(max_length=20)
     dept_name = models.CharField(max_length=100)
+
+    # Existing fields in DB
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = [
@@ -96,29 +85,19 @@ class Department(models.Model):
 # ------------------------------------------
 # SEMESTER
 # ------------------------------------------
-
-
-import uuid
-from django.db import models
-from .models import Degree, Department  # adjust import if needed
-
-
 class Semester(models.Model):
     sem_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
-
     sem_number = models.PositiveIntegerField()
     sem_name = models.CharField(max_length=50)
-
     degree = models.ForeignKey(
         Degree,
         on_delete=models.CASCADE,
         related_name="semesters"
     )
-
     department = models.ForeignKey(
         Department,
         on_delete=models.SET_NULL,
@@ -126,9 +105,12 @@ class Semester(models.Model):
         blank=True,
         related_name="semesters"
     )
-
     year = models.PositiveIntegerField()
   
+    # Existing fields in DB
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('degree', 'sem_number')
@@ -138,39 +120,25 @@ class Semester(models.Model):
         return f"{self.degree.degree_name} - Semester {self.sem_number}"
 
 
-
 # ------------------------------------------
 # REGULATION
 # ------------------------------------------
-
-import uuid
-from django.db import models
-from .models import Degree
-
-
 class Regulation(models.Model):
     regulation_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
-
     degree = models.ForeignKey(
         Degree,
         on_delete=models.CASCADE,
         related_name="regulations"
     )
+    regulation_code = models.CharField(max_length=50, help_text="e.g. R20")
+    batch = models.CharField(max_length=20, help_text="e.g. 2020-2024")
 
-    regulation_code = models.CharField(
-        max_length=50,
-        help_text="e.g. R20"
-    )
-
-    batch = models.CharField(
-        max_length=20,
-        help_text="e.g. 2020-2024"
-    )
-
+    # fields in DB (Regulation does NOT have updated_at according to PRAGMA)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

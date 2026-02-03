@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, useRef } from 'react';
 import api from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock, PartyPopper, Users, FileText, UserCheck, Search, Smartphone } from 'lucide-react';
+import { LogOut, LayoutDashboard, BookOpen, GraduationCap, Building2, Plus, Trash2, Edit2, Loader2, Save, X, ShieldCheck, Calendar, Clock, PartyPopper, Users, FileText, UserCheck, Search, Smartphone, ClipboardList, Activity } from 'lucide-react';
 
 const SlotManager = ({ formData, setFormData }) => {
     const slots = formData.slots || [];
@@ -1044,6 +1044,427 @@ const HolidayManager = () => {
     );
 };
 
+const CourseRegistrationManager = () => {
+    const [windows, setWindows] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [view, setView] = useState('list'); // 'list', 'create', 'monitor'
+    const [selectedWindow, setSelectedWindow] = useState(null);
+    const [monitoringData, setMonitoringData] = useState(null);
+
+    // Form data states
+    const [schools, setSchools] = useState([]);
+    const [degrees, setDegrees] = useState([]);
+    const [departments, setDepartments] = useState([]);
+    const [regulations, setRegulations] = useState([]);
+    const [semesters, setSemesters] = useState([]);
+    const [coursePool, setCoursePool] = useState([]);
+
+    const [formData, setFormData] = useState({
+        school: '',
+        department: '',
+        degree: '',
+        batch: '',
+        semester: '',
+        regulation: '',
+        major_subjects: [],
+        elective_subjects: [],
+        start_datetime: '',
+        end_datetime: '',
+        status: 'ACTIVE'
+    });
+
+    useEffect(() => {
+        if (view === 'list') fetchWindows();
+        if (view === 'create') fetchInitialData();
+    }, [view]);
+
+    const fetchWindows = async () => {
+        setLoading(true);
+        try {
+            const res = await api.get('/course-config/windows/');
+            setWindows(res.data);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchInitialData = async () => {
+        try {
+            const res = await api.get('/create/schools/');
+            setSchools(res.data);
+        } catch (err) { console.error(err); }
+    };
+
+    // Cascading Fetches
+    useEffect(() => {
+        if (formData.school) {
+            api.get(`/create/degrees/?school_id=${formData.school}`).then(res => setDegrees(res.data));
+        } else {
+            setDegrees([]);
+        }
+    }, [formData.school]);
+
+    useEffect(() => {
+        if (formData.degree) {
+            api.get(`/create/departments/?degree_id=${formData.degree}`).then(res => setDepartments(res.data));
+            api.get(`/create/regulations/?degree_id=${formData.degree}`).then(res => setRegulations(res.data));
+            api.get(`/create/semesters/?degree_id=${formData.degree}`).then(res => setSemesters(res.data));
+        } else {
+            setDepartments([]);
+            setRegulations([]);
+            setSemesters([]);
+        }
+    }, [formData.degree]);
+
+    useEffect(() => {
+        if (formData.department && formData.regulation && formData.batch) {
+            api.get(`/course-config/courses/?department=${formData.department}&regulation=${formData.regulation}&batch=${formData.batch}`)
+                .then(res => setCoursePool(res.data));
+        } else {
+            setCoursePool([]);
+        }
+    }, [formData.department, formData.regulation, formData.batch]);
+
+    const handleCreate = async (e) => {
+        e.preventDefault();
+        try {
+            await api.post('/course-config/windows/', formData);
+            alert('Registration window created successfully!');
+            setView('list');
+        } catch (err) {
+            console.error(err);
+            alert(err.response?.data?.error || 'Failed to create window');
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (!confirm('Are you sure you want to delete this registration window?')) return;
+        try {
+            await api.delete(`/course-config/windows/${id}/`);
+            fetchWindows();
+        } catch (err) {
+            alert('Failed to delete window');
+        }
+    };
+
+    const startMonitor = async (win) => {
+        setSelectedWindow(win);
+        setView('monitor');
+        try {
+            const res = await api.get(`/course-config/windows/${win.window_id}/monitor/`);
+            setMonitoringData(res.data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    if (view === 'monitor' && monitoringData) {
+        return (
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <button onClick={() => setView('list')} className="btn btn-outline flex items-center gap-2">
+                        <ChevronRight className="rotate-180" size={16} /> Back to Windows
+                    </button>
+                    <h2 className="text-xl font-bold text-gray-800">Registration Monitoring</h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="bg-white p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                        <p className="text-xs text-gray-500 uppercase font-bold">Total Students</p>
+                        <p className="text-2xl font-black text-blue-600">{monitoringData.statistics.total_students}</p>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                        <p className="text-xs text-gray-500 uppercase font-bold">Registered</p>
+                        <p className="text-2xl font-black text-green-600">{monitoringData.statistics.registered_students}</p>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                        <p className="text-xs text-gray-500 uppercase font-bold">Pending</p>
+                        <p className="text-2xl font-black text-orange-600">{monitoringData.statistics.pending_students}</p>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                        <p className="text-xs text-gray-500 uppercase font-bold">Completion</p>
+                        <p className="text-2xl font-black text-purple-600">
+                            {Math.round((monitoringData.statistics.registered_students / monitoringData.statistics.total_students) * 100 || 0)}%
+                        </p>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-[var(--border)] shadow-sm overflow-hidden">
+                    <div className="p-4 bg-gray-50 border-b border-[var(--border)] flex items-center gap-2 font-bold text-gray-700">
+                        <Activity size={18} /> Subject-wise Student Enrollment
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                        {monitoringData.statistics.subject_wise_counts.map((sub, idx) => (
+                            <div key={idx} className="p-4 flex justify-between items-center hover:bg-gray-50">
+                                <div>
+                                    <p className="font-bold text-gray-800">{sub.course_name}</p>
+                                    <p className="text-xs text-gray-400 font-mono">{sub.course_code}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-lg font-bold text-[var(--primary)]">{sub.count} Students</p>
+                                    <div className="w-32 h-2 bg-gray-100 rounded-full mt-1">
+                                        <div
+                                            className="h-full bg-[var(--primary)] rounded-full"
+                                            style={{ width: `${Math.min(100, (sub.count / monitoringData.statistics.total_students) * 100)}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (view === 'create') {
+        return (
+            <div className="max-w-4xl mx-auto pb-12">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold text-gray-800">Create Course Registration Window</h2>
+                    <button onClick={() => setView('list')} className="btn btn-outline">Cancel</button>
+                </div>
+
+                <form onSubmit={handleCreate} className="space-y-6 bg-white p-8 rounded-2xl border border-[var(--border)] shadow-lg">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">School</label>
+                            <select
+                                className="input-field"
+                                value={formData.school}
+                                onChange={e => setFormData({ ...formData, school: e.target.value, degree: '', department: '', regulation: '', semester: '' })}
+                                required
+                            >
+                                <option value="">Select School</option>
+                                {schools.map(s => <option key={s.school_id} value={s.school_id}>{s.school_name}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Degree</label>
+                            <select
+                                className="input-field"
+                                value={formData.degree}
+                                onChange={e => setFormData({ ...formData, degree: e.target.value, department: '', regulation: '', semester: '' })}
+                                required
+                                disabled={!formData.school}
+                            >
+                                <option value="">Select Degree</option>
+                                {degrees.map(d => <option key={d.degree_id} value={d.degree_id}>{d.degree_name}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Department</label>
+                            <select
+                                className="input-field"
+                                value={formData.department}
+                                onChange={e => setFormData({ ...formData, department: e.target.value })}
+                                required
+                                disabled={!formData.degree}
+                            >
+                                <option value="">Select Department</option>
+                                {departments.map(d => <option key={d.dept_id} value={d.dept_id}>{d.dept_name}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Semester</label>
+                            <select
+                                className="input-field"
+                                value={formData.semester}
+                                onChange={e => setFormData({ ...formData, semester: e.target.value })}
+                                required
+                                disabled={!formData.degree}
+                            >
+                                <option value="">Select Semester</option>
+                                {semesters.map(s => <option key={s.sem_id} value={s.sem_id}>{s.sem_name}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Regulation</label>
+                            <select
+                                className="input-field"
+                                value={formData.regulation}
+                                onChange={e => setFormData({ ...formData, regulation: e.target.value })}
+                                required
+                                disabled={!formData.degree}
+                            >
+                                <option value="">Select Regulation</option>
+                                {regulations.map(r => <option key={r.regulation_id} value={r.regulation_id}>{r.regulation_code}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Batch / Academic Year</label>
+                            <input
+                                type="text"
+                                className="input-field"
+                                placeholder="e.g. 2025"
+                                value={formData.batch}
+                                onChange={e => setFormData({ ...formData, batch: e.target.value })}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Start Date & Time</label>
+                            <input
+                                type="datetime-local"
+                                className="input-field"
+                                value={formData.start_datetime}
+                                onChange={e => setFormData({ ...formData, start_datetime: e.target.value })}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">End Date & Time</label>
+                            <input
+                                type="datetime-local"
+                                className="input-field"
+                                value={formData.end_datetime}
+                                onChange={e => setFormData({ ...formData, end_datetime: e.target.value })}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-[var(--primary)] flex items-center gap-2">
+                                <Plus size={16} /> Major Subjects
+                            </label>
+                            <div className="border border-blue-100 rounded-xl p-2 h-48 overflow-y-auto bg-blue-50/30">
+                                {coursePool.length === 0 && <p className="text-xs text-gray-400 italic p-4 text-center mt-8">Select Dept, Regulation & Batch to load courses</p>}
+                                {coursePool.map(course => (
+                                    <label key={course.course_id} className="flex items-center gap-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            className="w-4 h-4 accent-[var(--primary)]"
+                                            checked={formData.major_subjects.includes(course.course_id)}
+                                            onChange={e => {
+                                                const current = [...formData.major_subjects];
+                                                if (e.target.checked) current.push(course.course_id);
+                                                else {
+                                                    const idx = current.indexOf(course.course_id);
+                                                    if (idx > -1) current.splice(idx, 1);
+                                                }
+                                                setFormData({ ...formData, major_subjects: current });
+                                            }}
+                                        />
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-800">{course.course_name}</p>
+                                            <p className="text-[10px] text-gray-400 font-mono">{course.course_code}</p>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-purple-600 flex items-center gap-2">
+                                <Plus size={16} /> Elective / Other Subjects
+                            </label>
+                            <div className="border border-purple-100 rounded-xl p-2 h-48 overflow-y-auto bg-purple-50/30">
+                                {coursePool.length === 0 && <p className="text-xs text-gray-400 italic p-4 text-center mt-8">Select Dept, Regulation & Batch to load courses</p>}
+                                {coursePool.map(course => (
+                                    <label key={course.course_id} className="flex items-center gap-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            className="w-4 h-4 accent-purple-600"
+                                            checked={formData.elective_subjects.includes(course.course_id)}
+                                            onChange={e => {
+                                                const current = [...formData.elective_subjects];
+                                                if (e.target.checked) current.push(course.course_id);
+                                                else {
+                                                    const idx = current.indexOf(course.course_id);
+                                                    if (idx > -1) current.splice(idx, 1);
+                                                }
+                                                setFormData({ ...formData, elective_subjects: current });
+                                            }}
+                                        />
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-800">{course.course_name}</p>
+                                            <p className="text-[10px] text-gray-400 font-mono">{course.course_code}</p>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
+                        <button type="submit" className="btn btn-primary px-8 py-3 rounded-xl shadow-lg shadow-blue-200 flex items-center gap-2">
+                            <Save size={18} /> Create Registration Window
+                        </button>
+                    </div>
+                </form>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-[var(--border)] shadow-sm">
+                <div>
+                    <h2 className="text-2xl font-black text-gray-800 tracking-tight">Course Registration</h2>
+                    <p className="text-sm text-gray-500">Manage registration windows and monitor student enrollment</p>
+                </div>
+                <button
+                    onClick={() => setView('create')}
+                    className="btn btn-primary flex items-center gap-2 shadow-lg shadow-blue-200"
+                >
+                    <Plus size={20} /> Create Registration
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+                {loading ? (
+                    <div className="p-12 text-center text-gray-400"><Loader2 className="animate-spin mx-auto mb-2" /> Loading windows...</div>
+                ) : windows.length === 0 ? (
+                    <div className="p-12 text-center bg-white rounded-2xl border-[2px] border-dashed border-gray-100">
+                        <ClipboardList size={48} className="mx-auto text-gray-200 mb-4" />
+                        <p className="text-gray-400 italic">No registration windows found. Click the button above to create one.</p>
+                    </div>
+                ) : (
+                    windows.map(win => (
+                        <div key={win.window_id} className="bg-white p-6 rounded-2xl border border-[var(--border)] shadow-sm hover:shadow-md transition-shadow flex justify-between items-center group">
+                            <div className="flex items-center gap-6">
+                                <div className={`p-4 rounded-2xl ${win.status === 'ACTIVE' ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'}`}>
+                                    <Clock size={32} />
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-bold text-lg text-gray-800">{win.dept_name} - {win.batch}</h3>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${win.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                            {win.status}
+                                        </span>
+                                    </div>
+                                    <div className="flex gap-4 text-xs text-gray-500">
+                                        <p className="flex items-center gap-1"><GraduationCap size={14} /> {win.sem_name}</p>
+                                        <p className="flex items-center gap-1"><ShieldCheck size={14} /> {win.regulation_code}</p>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400">
+                                        Window: {new Date(win.start_datetime).toLocaleString()} — {new Date(win.end_datetime).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => startMonitor(win)}
+                                    className="btn btn-outline border-blue-100 text-[var(--primary)] hover:bg-blue-50 flex items-center gap-2"
+                                >
+                                    <Activity size={16} /> Monitor
+                                </button>
+                                <button onClick={() => handleDelete(win.window_id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors">
+                                    <Trash2 size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
 // Reusable Tab Component
 const TabButton = ({ active, onClick, icon: Icon, label }) => (
     <button
@@ -1442,6 +1863,18 @@ export default function Dashboard() {
                         label="Departments"
                     />
                     <TabButton
+                        active={activeTab === 'courses'}
+                        onClick={() => setActiveTab('courses')}
+                        icon={BookOpen}
+                        label="Course Configuration"
+                    />
+                    <TabButton
+                        active={activeTab === 'course-registration'}
+                        onClick={() => setActiveTab('course-registration')}
+                        icon={ClipboardList}
+                        label="Course Registration"
+                    />
+                    <TabButton
                         active={activeTab === 'semesters'}
                         onClick={() => setActiveTab('semesters')}
                         icon={LayoutDashboard}
@@ -1589,6 +2022,94 @@ export default function Dashboard() {
                             ]}
                         />
                     )}
+                    {activeTab === 'courses' && (
+                        <DataManager
+                            title="Course Pool Configuration"
+                            endpoint="/course-config/courses/"
+                            icon={BookOpen}
+                            idField="course_id"
+                            displayField="course_name"
+                            renderHeaderExtra={({ fetchData }) => (
+                                <BulkUploadButton
+                                    endpoint="/course-config/courses/upload/"
+                                    onUploadSuccess={fetchData}
+                                />
+                            )}
+                            fields={[
+                                { name: 'course_name', label: 'Course Name', required: true },
+                                { name: 'course_code', label: 'Course Code', required: true },
+                                {
+                                    name: 'course_type',
+                                    label: 'Course Type',
+                                    type: 'select',
+                                    options: [
+                                        { id: 'CORE', name: 'Core' },
+                                        { id: 'ELECTIVE', name: 'Elective' },
+                                        { id: 'OPEN_ELECTIVE', name: 'Open Elective' },
+                                        { id: 'LAB', name: 'Lab' }
+                                    ],
+                                    required: true
+                                },
+                                {
+                                    name: 'school',
+                                    label: 'School',
+                                    type: 'select',
+                                    resource: '/create/schools/',
+                                    idKey: 'school_id',
+                                    displayKey: 'school_name',
+                                    required: true
+                                },
+                                {
+                                    name: 'degree',
+                                    label: 'Degree',
+                                    type: 'select',
+                                    resource: '/create/degrees/',
+                                    idKey: 'degree_id',
+                                    displayKey: 'degree_name',
+                                    required: true
+                                },
+                                {
+                                    name: 'department',
+                                    label: 'Department',
+                                    type: 'select',
+                                    resource: '/create/departments/',
+                                    idKey: 'dept_id',
+                                    displayKey: 'dept_name',
+                                    required: true
+                                },
+                                {
+                                    name: 'regulation',
+                                    label: 'Regulation',
+                                    type: 'select',
+                                    resource: '/create/regulations/',
+                                    idKey: 'regulation_id',
+                                    displayKey: 'regulation_code',
+                                    required: true
+                                },
+                                { name: 'batch', label: 'Batch (e.g. 2025)', required: true },
+                                { name: 'credit_value', label: 'Credit Value', type: 'number', required: true },
+                                { name: 'lecture_hours', label: 'L (Lecture)', type: 'number', required: true },
+                                { name: 'tutorial_hours', label: 'T (Tutorial)', type: 'number', required: true },
+                                { name: 'practical_hours', label: 'P (Practical)', type: 'number', required: true },
+                                {
+                                    name: 'course_category',
+                                    label: 'Category',
+                                    type: 'select',
+                                    options: [
+                                        { id: 'THEORY', name: 'Theory' },
+                                        { id: 'PRACTICAL', name: 'Practical' },
+                                        { id: 'PROJECT', name: 'Project' }
+                                    ],
+                                    required: true
+                                },
+                                { name: 'status', label: 'Active Status', type: 'checkbox', defaultValue: true }
+                            ]}
+                        />
+                    )}
+
+                    {activeTab === 'course-registration' && (
+                        <CourseRegistrationManager />
+                    )}
                     {activeTab === 'semesters' && (
                         <DataManager
                             title="Semesters"
@@ -1632,7 +2153,7 @@ export default function Dashboard() {
                             displayField="regulation_code"
                             fields={[
                                 { name: 'regulation_code', label: 'Regulation ID (e.g. MR25)', required: true },
-                                { name: 'batch', label: 'Batch (e.g. 2025-2026)', required: true },
+                                { name: 'start_year', label: 'Start Year (e.g. 2025)', required: true, type: 'number' },
                                 {
                                     name: 'degree',
                                     label: 'Degree Mapping',

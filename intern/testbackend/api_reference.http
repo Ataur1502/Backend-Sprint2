@@ -1,0 +1,107 @@
+### API Reference and Request Body Formats
+# Use with VS Code REST Client extension
+# Replace {{token}} with your actual Bearer token after logging in
+
+@baseUrl = http://localhost:8000
+
+### 1. Unified Login (Admin / MFA)
+POST {{baseUrl}}/auth/admin-login/
+Content-Type: application/json
+
+{
+    "username": "admin",
+    "password": "password123"
+}
+
+### 2. Create School
+POST {{baseUrl}}/create/schools/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "school_name": "School of Engineering",
+    "school_code": "SOE"
+}
+
+### 3. List Schools
+GET {{baseUrl}}/create/schools/
+Authorization: Bearer {{token}}
+
+### 4. Create Department Admin Assignment
+# Cascading Selection Requirement: Select School -> Degree -> Department -> Faculty
+POST {{baseUrl}}/users/dept-admin/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "faculty_id": "uuid-of-faculty",
+    "school_id": "uuid-of-school",
+    "degree_id": "uuid-of-degree",
+    "department_id": "uuid-of-department",
+    "is_active": true
+}
+
+### 5. Bulk Student Upload (Excel)
+# This usually requires multipart/form-data
+POST {{baseUrl}}/users/students/upload-excel/
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="students.xlsx"
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+< ./path/to/your/students.xlsx
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### 6. Create Course
+POST {{baseUrl}}/course-configuration/courses/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "course_name": "Digital Logic Design",
+    "course_code": "CS101",
+    "course_type": "CORE",
+    "course_category": "THEORY",
+    "batch": "2024-2028",
+    "credit_value": 3,
+    "lecture_hours": 3,
+    "tutorial_hours": 0,
+    "practical_hours": 0,
+    "school": "uuid-of-school",
+    "degree": "uuid-of-degree",
+    "department": "uuid-of-department",
+    "regulation": "uuid-of-regulation"
+}
+
+### 7. Create Academic Calendar
+POST {{baseUrl}}/academic/calendars/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "name": "Academic Calendar 2024-25",
+    "school": "uuid-of-school",
+    "degree": "uuid-of-degree",
+    "department": "uuid-of-department",
+    "regulation": "uuid-of-regulation",
+    "batch": "2024-2028",
+    "semester": "uuid-of-semester"
+}
+
+### 8. Token Refresh
+POST {{baseUrl}}/auth/token/refresh/
+Content-Type: application/json
+
+{
+    "refresh": "your-refresh-token"
+}
+
+### 9. List Configured Courses (Filtered by Dept/Regulation)
+GET {{baseUrl}}/course-configuration/courses/?department=uuid-of-dept&regulation=uuid-of-reg
+Authorization: Bearer {{token}}
+
+### 10. Roles Dashboard Summary
+GET {{baseUrl}}/users/roles/summary/
+Authorization: Bearer {{token}}

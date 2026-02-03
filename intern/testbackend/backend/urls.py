@@ -25,4 +25,5 @@ urlpatterns = [
     path('academic/', include('AcademicSetup.urls')),
     path('users/', include('UserDataManagement.urls')),
     path('student-services/', include('StudentServices.urls')),
+    path('course-config/', include('CourseConfiguration.urls')),
 ]

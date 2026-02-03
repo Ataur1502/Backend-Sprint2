@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     SchoolViewSet,
     DegreeView,
+    DegreeListAPIView,
     DepartmentAPIView,
     SemesterAPIView,
     RegulationAPIView
@@ -23,6 +24,10 @@ urlpatterns = [
     # School APIs (ViewSet)
     # ---------------------------------------------
     path('', include(router.urls)),
+
+    # Flat Degree API
+    path('degrees/', DegreeListAPIView.as_view(), name='degree-list'),
+    path('degrees/<uuid:degree_id>/', DegreeListAPIView.as_view(), name='degree-detail'),
 
     # ---------------------------------------------
     # Degree APIs (STRICTLY UNDER SCHOOL)

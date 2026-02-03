@@ -129,7 +129,7 @@ class FacultyMappingOptionsView(APIView):
         for school in schools:
             options.append({
                 "label": f"{school.school_name} (Full School)",
-                "school_id": str(school.id),
+                "school_id": str(school.school_id),
                 "department_id": None
             })
 
@@ -137,8 +137,8 @@ class FacultyMappingOptionsView(APIView):
                 for dept in degree.departments.all():
                     options.append({
                         "label": f"{school.school_name} - {dept.dept_name}",
-                        "school_id": str(school.id),
-                        "department_id": str(dept.id)
+                        "school_id": str(school.school_id),
+                        "department_id": str(dept.dept_id)
                     })
 
         return Response(options)
