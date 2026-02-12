@@ -33,6 +33,7 @@ class DegreeSerializer(serializers.ModelSerializer):
             'degree_name',
             'degree_duration',
             'number_of_semesters',
+            'is_active',
             'school'
         ]
         read_only_fields = [
@@ -76,7 +77,8 @@ class DepartmentSerializer(serializers.ModelSerializer):
             'dept_id',
             'dept_code',
             'dept_name',
-            'degree'
+            'degree',
+            'is_active'
         ]
 
     def validate(self, data):
@@ -105,6 +107,8 @@ class DepartmentSerializer(serializers.ModelSerializer):
 # SEMESTER SERIALIZER 
 # ------------------------------------------
 class SemesterSerializer(serializers.ModelSerializer):
+    department_codes = serializers.SerializerMethodField()
+
     class Meta:
         model = Semester
         fields = [
@@ -112,34 +116,17 @@ class SemesterSerializer(serializers.ModelSerializer):
             'sem_number',
             'sem_name',
             'year',
-            
             'degree',
-            'department'
+            'department_codes',
         ]
-        read_only_fields = (
-            'sem_id',
+        read_only_fields = fields
+
+    def get_department_codes(self, obj):
+        return list(
+            obj.degree.departments.values_list('dept_code', flat=True)
         )
 
-    def validate(self, data):
-        # Since degree and department are read_only in some contexts or missing in partial PUTs,
-        # we need to be careful with attribute access.
-        degree = data.get('degree') or (self.instance.degree if self.instance else None)
-        department = data.get('department') or (self.instance.department if self.instance else None)
-        sem_number = data.get('sem_number') or (self.instance.sem_number if self.instance else None)
 
-        # Department must belong to Degree
-        if department and degree and department.degree_id != degree.degree_id:
-            raise serializers.ValidationError(
-                "Selected department does not belong to the selected degree."
-            )
-
-        # Semester number must not exceed degree config
-        if sem_number and degree and sem_number > degree.number_of_semesters:
-            raise serializers.ValidationError(
-                "Semester number exceeds total semesters for this degree."
-            )
-
-        return data
 # ------------------------------------------
 # REGULATION SERIALIZER
 # ------------------------------------------
@@ -179,9 +166,4 @@ class RegulationSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def get_end_year(self, obj):
-        if not obj.batch or '-' not in obj.batch:
-            return None
-        try:
-            return int(obj.batch.split('-')[1])
-        except (ValueError, IndexError):
-            return None
+        return int(obj.batch.split('-')[1])

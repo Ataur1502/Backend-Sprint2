@@ -12,7 +12,12 @@ from .views import (
     FacultySearchView,
     RolesSummaryView,
     RolesListView,
-    DepartmentAdminAssignmentViewSet
+    DepartmentAdminAssignmentViewSet,
+    DashboardStatsView,
+    FacultyTemplateDownloadAPIView,
+    FacultyFilterAPIView,
+    StudentExcelTemplateDownloadAPIView,
+    StudentFilterAPIView
 )
 
 router = DefaultRouter()
@@ -27,12 +32,24 @@ urlpatterns = [
         StudentListAPIView.as_view(),
         name="student-list",
     ),
+    #Download student template
+    path(
+        "students/template/download/",
+        StudentExcelTemplateDownloadAPIView.as_view(),
+        name="student-excel-template-download",
+    ),
 
     #  Bulk upload via Excel
     path(
         "students/upload-excel/",
         StudentExcelUploadAPIView.as_view(),
         name="student-excel-upload",
+    ),
+    #filtering for students
+    path(
+        "students/filter/",
+        StudentFilterAPIView.as_view(),
+        name="student-filter",
     ),
 
     #  Individual GET / PATCH
@@ -41,8 +58,9 @@ urlpatterns = [
         StudentDetailAPIView.as_view(),
         name="student-detail",
     ),
+    
 
-    #Faculty creation
+                                #Faculty creation
     #  BULK UPLOAD (MUST COME FIRST)
     path(
         'faculty/upload-bulk/',
@@ -56,6 +74,17 @@ urlpatterns = [
         FacultyMappingOptionsView.as_view(),
         name='faculty-mapping-options'
     ),
+    path(
+        "faculty/template/",
+        FacultyTemplateDownloadAPIView.as_view(),
+        name="faculty-template-download",
+    ),
+
+    path(
+        "faculty/filter/",
+        FacultyFilterAPIView.as_view(),
+        name="faculty-filter",
+    ),
 
 
 
@@ -68,6 +97,10 @@ urlpatterns = [
     # Roles Dashboard (Feature 4)
     path('roles/summary/', RolesSummaryView.as_view(), name='roles-summary'),
     path('roles/list/', RolesListView.as_view(), name='roles-list'),
+
+    # Dashboard Stats
+    path('dashboard/stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
+    
     # ROUTER (KEEP THIS LAST)
     path('', include(router.urls)),
 

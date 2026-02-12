@@ -6,9 +6,7 @@ media/
 
 # Environment variables
 .env
-venv/
-env/
-ENV/
+kill
 
 # IDE
 .vscode/

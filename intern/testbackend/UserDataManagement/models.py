@@ -1,17 +1,8 @@
 import uuid
 from django.db import models
 from django.conf import settings
-from Creation.models import School, Department, Degree,Regulation,Semester
+from Creation.models import School, Department, Degree, Regulation, Semester
 
-'''
-----------------------------------------------------------------------------------------------------------------------------
-                                    Faculty creation
-----------------------------------------------------------------------------------------------------------------------------
-'''
-
-
-
-import uuid
 
 class Faculty(models.Model):
     GENDER_CHOICES = [
@@ -63,27 +54,7 @@ class FacultyMapping(models.Model):
         )
 
 
-
-'''
---------------------------------------------------------------------------------------------------------------------------------
-                                                Student creation
---------------------------------------------------------------------------------------------------------------------------------
-'''
-
-
-
-from django.db import models
-from Creation.models import Degree, Department, Regulation, Semester
-
-
 class Student(models.Model):
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='student_profile',
-        null=True, blank=True # Nullable for legacy data, but will be populated for new uploads
-    )
-    # Django will automatically create: id = AutoField(primary_key=True)
     student_id = models.UUIDField(
             primary_key=True,
             default=uuid.uuid4,

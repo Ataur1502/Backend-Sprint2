@@ -16,11 +16,7 @@ class SemesterAPIView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
     # GET semesters
-    def get(self, request, sem_id=None):
-        if sem_id:
-            semester = get_object_or_404(Semester, sem_id=sem_id)
-            return Response(SemesterSerializer(semester).data)
-
+    def get(self, request):
         degree_id = request.query_params.get('degree_id')
         department_id = request.query_params.get('department_id')
 
@@ -64,11 +60,6 @@ class SemesterAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def delete(self, request, sem_id):
-        semester = get_object_or_404(Semester, sem_id=sem_id)
-        semester.delete()
-        return Response({"message": "Semester deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
-
 #School creation
 class SchoolViewSet(viewsets.ModelViewSet):
     queryset = School.objects.all()
@@ -85,54 +76,38 @@ class SchoolViewSet(viewsets.ModelViewSet):
 """
 
 
-
-# ------------------------------------------
-# DEGREE LIST (FLAT)
-# ------------------------------------------
-class DegreeListAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsCollegeAdmin]
-
-    def get(self, request, degree_id=None):
-        if degree_id:
-            degree = get_object_or_404(Degree, degree_id=degree_id)
-            return Response(DegreeSerializer(degree).data)
-            
-        school_id = request.query_params.get('school_id')
-        if school_id:
-            degrees = Degree.objects.filter(school_id=school_id)
-        else:
-            degrees = Degree.objects.all()
-        serializer = DegreeSerializer(degrees, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def put(self, request, degree_id):
-        degree = get_object_or_404(Degree, degree_id=degree_id)
-        serializer = DegreeSerializer(degree, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({"msg": "Degree updated successfully", "data": serializer.data})
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, degree_id):
-        degree = get_object_or_404(Degree, degree_id=degree_id)
-        degree.delete()
-        return Response({"msg": "Degree deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
-
 class DegreeView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
     # ---------------- GET ----------------
-    def get(self, request, school_id):
-        school = get_object_or_404(School, school_id=school_id)
-        degrees = Degree.objects.filter(school=school)
+    def get(self, request, school_id=None):
+        if school_id:
+            school = get_object_or_404(School, school_id=school_id)
+            degrees = Degree.objects.filter(school=school)
+        else:
+            # Helper logic: Filter by query param if provided, else all
+            query_school = request.query_params.get('school')
+            if query_school:
+                 degrees = Degree.objects.filter(school__school_id=query_school)
+            else:
+                 degrees = Degree.objects.all()
 
         serializer = DegreeSerializer(degrees, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # ---------------- POST ----------------
-    def post(self, request, school_id):
-        school = get_object_or_404(School, school_id=school_id)
-        data = request.data
+    def post(self, request, school_id=None):
+        data = request.data.copy()
+        
+        # If school_id is in URL, use it. Otherwise expect it in body.
+        if school_id:
+             school = get_object_or_404(School, school_id=school_id)
+        else:
+             # Try to get from data
+             sid = data.get('school') or data.get('school_id')
+             if not sid:
+                  return Response({"error": "school_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+             school = get_object_or_404(School, school_id=sid)
 
         serializer = DegreeSerializer(data=data)
 
@@ -166,13 +141,23 @@ class DegreeView(APIView):
         )
 
     # ---------------- PUT ----------------
-    def put(self, request, school_id, degree_id):
-        school = get_object_or_404(School, school_id=school_id)
-        degree = get_object_or_404(
-            Degree,
-            degree_id=degree_id,
-            school=school
-        )
+    def put(self, request, school_id=None, degree_id=None):
+        # Allow degree_id to be passed as single arg if school_id is missing or as 2nd arg
+        # This handles /api/degrees/<degree_id>/ pattern
+        if school_id and not degree_id: 
+             # If mapped as degrees/<id>/, the id might come in school_id arg position due to url config
+             # We should rely on named groups in URLconf, but let's be safe
+             degree_id = school_id
+             school_id = None
+
+        if not degree_id:
+             return Response({"error": "Degree ID required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        degree = get_object_or_404(Degree, degree_id=degree_id)
+        
+        # Verify school match if provided
+        if school_id and str(degree.school.school_id) != str(school_id):
+             return Response({"error": "Degree does not belong to this school"}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = DegreeSerializer(degree, data=request.data, partial=True)
 
@@ -238,11 +223,7 @@ class DepartmentAPIView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
     # GET Departments
-    def get(self, request, dept_id=None):
-        if dept_id:
-            department = get_object_or_404(Department, dept_id=dept_id)
-            return Response(DepartmentSerializer(department).data)
-
+    def get(self, request):
         degree_id = request.query_params.get('degree_id')
 
         if degree_id:
@@ -269,16 +250,19 @@ class DepartmentAPIView(APIView):
     # PUT Update Department
     def put(self, request, dept_id):
         department = get_object_or_404(Department, dept_id=dept_id)
-        serializer = DepartmentSerializer(department, data=request.data, partial=True)
+        serializer = DepartmentSerializer(
+            department,
+            data=request.data
+        )
+
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Department updated successfully"}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Department updated successfully"},
+                status=status.HTTP_200_OK
+            )
 
-    def delete(self, request, dept_id):
-        department = get_object_or_404(Department, dept_id=dept_id)
-        department.delete()
-        return Response({"message": "Department deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -290,11 +274,7 @@ class DepartmentAPIView(APIView):
 class RegulationAPIView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
-    def get(self, request, regulation_id=None):
-        if regulation_id:
-            regulation = get_object_or_404(Regulation, regulation_id=regulation_id)
-            return Response(RegulationSerializer(regulation).data)
-            
+    def get(self, request):
         regulations = Regulation.objects.all()
         degree_id = request.query_params.get('degree_id')
 
@@ -322,18 +302,25 @@ class RegulationAPIView(APIView):
             status=status.HTTP_201_CREATED
         )
 
-    def put(self, request, regulation_id):
-        regulation = get_object_or_404(Regulation, regulation_id=regulation_id)
-        serializer = RegulationSerializer(regulation, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({"msg": "Regulation updated successfully", "data": serializer.data})
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def delete(self, request, regulation_id):
-        regulation = get_object_or_404(Regulation, regulation_id=regulation_id)
-        regulation.delete()
-        return Response({"msg": "Regulation deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 
+'''
+-------------------------------------------------------------------------------------------------------------------------------
+                                                Sem Api
+-------------------------------------------------------------------------------------------------------------------------------
+'''
+#To store the sem names in DB and to use them in other features
 
+class SemesterAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsCollegeAdmin]
+
+    def get(self, request):
+        degree_id = request.query_params.get('degree_id')
+
+        semesters = Semester.objects.all()
+
+        if degree_id:
+            semesters = semesters.filter(degree_id=degree_id)
+
+        serializer = SemesterSerializer(semesters, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

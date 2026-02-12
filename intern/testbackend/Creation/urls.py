@@ -4,7 +4,6 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     SchoolViewSet,
     DegreeView,
-    DegreeListAPIView,
     DepartmentAPIView,
     SemesterAPIView,
     RegulationAPIView
@@ -25,22 +24,32 @@ urlpatterns = [
     # ---------------------------------------------
     path('', include(router.urls)),
 
-    # Flat Degree API
-    path('degrees/', DegreeListAPIView.as_view(), name='degree-list'),
-    path('degrees/<uuid:degree_id>/', DegreeListAPIView.as_view(), name='degree-detail'),
-
     # ---------------------------------------------
     # Degree APIs (STRICTLY UNDER SCHOOL)
     # ---------------------------------------------
     path(
         'schools/<uuid:school_id>/degrees/',
         DegreeView.as_view(),                               #GET & POST
-        name='degree-list-create'
+        name='degree-list-create-nested'
     ),
     path(
         'schools/<uuid:school_id>/degrees/<uuid:degree_id>/',
         DegreeView.as_view(),                                       #PUT
-        name='degree-update'
+        name='degree-update-nested'
+    ),
+
+    # ---------------------------------------------
+    # Degree APIs (Top-Level for direct access)
+    # ---------------------------------------------
+    path(
+        'degrees/',
+        DegreeView.as_view(),
+        name='degree-list-create'
+    ),
+    path(
+        'degrees/<uuid:degree_id>/',
+        DegreeView.as_view(),
+        name='degree-detail-update'
     ),
 
     # ---------------------------------------------
