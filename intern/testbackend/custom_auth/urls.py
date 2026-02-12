@@ -33,7 +33,5 @@ urlpatterns = [
     # Token management
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # Backward compatibility for old client endpoints
-    path('admin-login/', LoginView.as_view()),
-    path('admin-verify-otp/', MFAVerifyView.as_view()),
+    # Backward compatibility for old client endpoints - REMOVED AS PER USER REQUEST
 ]

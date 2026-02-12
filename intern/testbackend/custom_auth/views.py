@@ -107,6 +107,7 @@ class LoginView(APIView):
             return Response({
                 'mfa_required': True, 
                 'role': user.role, 
+                'all_roles': user.get_all_roles(),
                 'email': user.email, 
                 'mfa_id': mfa_id, 
                 'push_success': success,
@@ -114,7 +115,12 @@ class LoginView(APIView):
             })
 
         refresh = RefreshToken.for_user(user)
-        return Response({'access': str(refresh.access_token), 'refresh': str(refresh), 'role': user.role})
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'role': user.role,
+            'all_roles': user.get_all_roles()
+        })
 
 
 class MFAVerifyView(APIView):
@@ -138,6 +144,7 @@ class MFAVerifyView(APIView):
                 'mfa_verified': True,
                 'mfa_id': str(mfa_session.id),
                 'role': user.role,
+                'all_roles': user.get_all_roles(),
                 'email': user.email,
                 'access': str(refresh.access_token),
                 'refresh': str(refresh),
@@ -430,6 +437,14 @@ class ActionMFAInitiateView(APIView):
                 'detail': msg
             }, status=status.HTTP_429_TOO_MANY_REQUESTS)
         
+        # Save the action to the session for later verification
+        try:
+            mfa = MFASession.objects.get(id=mfa_id)
+            mfa.action = action
+            mfa.save()
+        except MFASession.DoesNotExist:
+            pass
+
         return Response({
             'mfa_id': mfa_id,
             'push_success': success,

@@ -492,6 +492,7 @@ from .models import Student
 from .serializers import (
     StudentExcelUploadSerializer,
     StudentPatchSerializer,
+    StudentCreateSerializer,
 )
 
 
@@ -578,6 +579,7 @@ class StudentListAPIView(APIView):
                 "department": s.department.dept_code,
                 "regulation": s.regulation.regulation_code,
                 "semester": s.semester.sem_number,
+                "section": s.section,
                 "is_active": s.is_active,
             }
             for s in students
@@ -589,6 +591,15 @@ class StudentListAPIView(APIView):
                 "results": data,
             },
             status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        serializer = StudentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"message": "Student created successfully"},
+            status=status.HTTP_201_CREATED,
         )
 
 
@@ -617,6 +628,7 @@ class StudentDetailAPIView(APIView):
                 "parent_name": student.parent_name,
                 "parent_phone_number": student.parent_phone_number,
                 "batch": student.batch,
+                "section": student.section,
                 "department": student.department.dept_code,
                 "regulation": student.regulation.regulation_code,
                 "semester": student.semester.sem_number,
@@ -737,6 +749,18 @@ class StudentFilterAPIView(APIView):
                 regulation__regulation_code__iexact=regulation_code
             )
 
+        degree_code = request.query_params.get("degree")
+        if degree_code:
+            students = students.filter(
+                degree__degree_code__iexact=degree_code
+            )
+
+        section = request.query_params.get("section")
+        if section:
+            students = students.filter(
+                section__iexact=section
+            )
+
         # -----------------------------
         # RESPONSE FORMAT
         # -----------------------------
@@ -749,6 +773,7 @@ class StudentFilterAPIView(APIView):
                 "department": s.department.dept_code,
                 "regulation": s.regulation.regulation_code,
                 "semester": s.semester.sem_number,
+                "section": s.section,
                 "is_active": s.is_active,
             }
             for s in students
@@ -906,11 +931,11 @@ class RolesSummaryView(APIView):
     """
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
-    def get(self, request):
+    def get(self):
         counts = User.objects.aggregate(
             total_students=Count('id', filter=Q(role='STUDENT')),
-            total_faculty=Count('id', filter=Q(role='FACULTY')),
-            total_ca=Count('id', filter=Q(role__in=['COLLEGE_ADMIN', 'ACADEMIC_COORDINATOR']))
+            total_faculty=Count('id', filter=Q(role__in=['FACULTY', 'ACADEMIC_COORDINATOR', 'accedemic_coordinator'])),
+            total_ca=Count('id', filter=Q(role__in=['COLLEGE_ADMIN', 'ACADEMIC_COORDINATOR', 'accedemic_coordinator']))
         )
         return Response(counts)
 

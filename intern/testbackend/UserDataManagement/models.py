@@ -37,6 +37,11 @@ class Faculty(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    @property
+    def full_name(self):
+        return self.faculty_name
+
+
 
 
 class FacultyMapping(models.Model):
@@ -84,6 +89,7 @@ class Student(models.Model):
 
     # ===== Academic details =====
     batch = models.CharField(max_length=20)
+    section = models.CharField(max_length=10, blank=True, null=True)
 
     degree = models.ForeignKey(
         Degree, on_delete=models.PROTECT, related_name="students"
@@ -218,20 +224,11 @@ class DepartmentAdminAssignment(models.Model):
         return f"{self.faculty.full_name} -> {self.department.dept_name} ({self.school.school_name})"
     
     def save(self, *args, **kwargs):
-        """
-        Override save to update the faculty's user role when assignment is created.
-        
-        When a faculty is assigned as Department Admin:
-        1. Their associated User record gets the DEPARTMENT_ADMIN role
-        2. This grants them access to department-specific features
-        """
-        is_new = self.pk is None
+        is_new = self._state.adding
         super().save(*args, **kwargs)
         
-        # If this is a new assignment and it's active, update the user's role
         if is_new and self.is_active:
             user = self.faculty.user
-            # Only update if not already a department admin
-            if user.role != 'DEPARTMENT_ADMIN':
-                user.role = 'DEPARTMENT_ADMIN'
+            if user.role != 'ACADEMIC_COORDINATOR':
+                user.role = 'ACADEMIC_COORDINATOR'
                 user.save()

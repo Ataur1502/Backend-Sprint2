@@ -30,6 +30,31 @@ class User(AbstractUser):
     def is_academic_admin(self):
         return self.role == "COLLEGE_ADMIN"
 
+    @property
+    def is_faculty(self):
+        """Returns True if user is either a pure Faculty or an Academic Coordinator (Dept Admin)."""
+        return self.role in ["FACULTY", "ACADEMIC_COORDINATOR", "accedemic_coordinator"]
+
+    def get_all_roles(self):
+        """Standardized list of roles applicable to this user instance."""
+        role_map = {
+            'FACULTY': 'faculty',
+            'ACADEMIC_COORDINATOR': 'academic coordinator',
+            'accedemic_coordinator': 'academic coordinator',
+            'COLLEGE_ADMIN': 'college admin',
+            'STUDENT': 'student'
+        }
+        
+        main_role = role_map.get(self.role, self.role)
+        roles = [main_role]
+        
+        # Academic Coordinators are also Faculty
+        if self.role in ['ACADEMIC_COORDINATOR', 'accedemic_coordinator']:
+            if 'faculty' not in roles:
+                roles.insert(0, 'faculty')
+        
+        return roles
+
     def __str__(self):
         return f"{self.username} ({self.role})"
 
@@ -48,6 +73,7 @@ class MFASession(models.Model):
     resend_count = models.IntegerField(default=0)
     last_resend_at = models.DateTimeField(null=True, blank=True)
     is_verified = models.BooleanField(default=False)
+    action = models.CharField(max_length=255, null=True, blank=True, default='', help_text="Specific action this MFA is for")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def is_expired(self):

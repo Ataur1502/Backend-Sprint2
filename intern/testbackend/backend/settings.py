@@ -40,7 +40,7 @@ SECRET_KEY = 'django-insecure-f%6w)!8+*k_u+t%u68fgxnhvvzrxbhyrt)9fr2mbtuz^sq(p27
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['testserver', 'localhost', '127.0.0.1', '*']
 
 
 # Application definition
@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     'UserDataManagement',
     'StudentServices',
     'CourseConfiguration',
+    'CourseManagement',
 ]
 
 MIDDLEWARE = [

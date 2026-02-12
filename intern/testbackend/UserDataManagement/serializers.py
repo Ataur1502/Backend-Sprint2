@@ -10,6 +10,8 @@ from django.contrib.auth import authenticate
 from django.db import transaction
 from .models import Faculty, FacultyMapping, Student,DepartmentAdminAssignment
 from Creation.models import School, Department,Degree, Department, Regulation, Semester
+from custom_auth.models import MFASession
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -72,7 +74,7 @@ class FacultySerializer(serializers.ModelSerializer):
             "faculty_gender",
             "is_active",
             "created_at",
-            "mappings",   # 👈 IMPORTANT
+            "mappings",   
         ]
         read_only_fields = ["id", "created_at"]
 
@@ -205,11 +207,18 @@ class StudentExcelUploadSerializer(serializers.Serializer):
         "parent_phone_number",
         "regulation",
         "dept_code",
+        # "section" is optional, checked dynamically
     ]
 
     def save(self, **kwargs):
         workbook = load_workbook(self.validated_data["file"])
         sheet = workbook.active
+
+        # Check if "section" header exists
+        headers = [cell.value for cell in sheet[1]]
+        section_idx = -1
+        if "section" in headers:
+            section_idx = headers.index("section")
 
         created = 0
         skipped = []
@@ -260,6 +269,12 @@ class StudentExcelUploadSerializer(serializers.Serializer):
                 regulation_code,
                 dept_code,
             ) = row[:10]
+
+            # Optional Section
+            section = None
+            if section_idx != -1 and len(row) > section_idx:
+                section = row[section_idx]
+
 
             # -------------------------------------------------
             # 4️⃣ DUPLICATE STUDENT CHECK
@@ -342,6 +357,7 @@ class StudentExcelUploadSerializer(serializers.Serializer):
                         department=department,
                         regulation=regulation,
                         semester=semester,
+                        section=section,
                         is_active=True,
                     )
 
@@ -360,20 +376,77 @@ class StudentExcelUploadSerializer(serializers.Serializer):
         }
 
 
-class StudentPatchSerializer(serializers.Serializer):
-    student_name = serializers.CharField(required=False)
-    student_email = serializers.EmailField(required=False)
-    student_gender = serializers.CharField(required=False)
-    student_date_of_birth = serializers.DateField(required=False)
-    student_phone_number = serializers.CharField(required=False)
-    parent_name = serializers.CharField(required=False)
-    parent_phone_number = serializers.CharField(required=False)
-    batch = serializers.CharField(required=False)
+class StudentCreateSerializer(serializers.ModelSerializer):
+    dept_code = serializers.CharField(write_only=True)
+    regulation_code = serializers.CharField(write_only=True)
+    section = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+    class Meta:
+        model = Student
+        fields = [
+            "roll_no", "student_name", "student_email", "student_gender",
+            "student_date_of_birth", "student_phone_number", "parent_name",
+            "parent_phone_number", "dept_code", "regulation_code", "section"
+        ]
+
+    @transaction.atomic
+    def create(self, validated_data):
+        dept_code = validated_data.pop("dept_code")
+        regulation_code = validated_data.pop("regulation_code")
+        roll_no = validated_data["roll_no"]
+        email = validated_data["student_email"]
+
+        # 1. Foreign Key Validations
+        department = Department.objects.filter(dept_code__iexact=dept_code).first()
+        if not department:
+            raise serializers.ValidationError({"dept_code": "Invalid department code"})
+
+        regulation = Regulation.objects.filter(regulation_code__iexact=regulation_code).first()
+        if not regulation:
+            raise serializers.ValidationError({"regulation_code": "Invalid regulation code"})
+
+        semester = Semester.objects.filter(degree=department.degree).order_by("sem_number").first()
+        if not semester:
+            raise serializers.ValidationError({"semester": "Initial semester not found for this degree"})
+
+        # 2. User Creation
+        if User.objects.filter(username=roll_no).exists():
+            raise serializers.ValidationError({"roll_no": "User with this roll number already exists"})
+
+        user = User.objects.create(
+            username=roll_no,
+            email=email,
+            role="STUDENT",
+            is_active=True,
+        )
+        user.set_password(roll_no)
+        user.save()
+
+        # 3. Student Creation
+        student = Student.objects.create(
+            user=user,
+            batch=regulation.batch,
+            degree=department.degree,
+            department=department,
+            regulation=regulation,
+            semester=semester,
+            **validated_data
+        )
+        return student
+
+
+class StudentPatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = [
+            "student_name", "student_email", "student_gender", 
+            "student_date_of_birth", "student_phone_number", 
+            "parent_name", "parent_phone_number", "batch", "section"
+        ]
 
     def update(self, instance, validated_data):
         for field, value in validated_data.items():
             setattr(instance, field, value)
-
         instance.save()
         return instance
 
@@ -433,6 +506,12 @@ class DepartmentAdminAssignmentSerializer(serializers.ModelSerializer):
         help_text="Department under the selected degree"
     )
     
+    mfa_id = serializers.UUIDField(
+        write_only=True,
+        required=True,
+        help_text="Verified MFA session ID for this action"
+    )
+    
     # Read-only fields for output
     assigned_by_email = serializers.EmailField(
         source='assigned_by.email',
@@ -450,7 +529,7 @@ class DepartmentAdminAssignmentSerializer(serializers.ModelSerializer):
         model = DepartmentAdminAssignment
         fields = [
             'assignment_id', 'faculty_id', 'faculty_name', 'school_id', 
-            'degree_id', 'department_id', 'assigned_by', 'assigned_by_email',
+            'degree_id', 'department_id', 'mfa_id', 'assigned_by', 'assigned_by_email',
             'assigned_at', 'is_active'
         ]
         read_only_fields = ['assignment_id', 'assigned_by', 'assigned_at']
@@ -483,6 +562,25 @@ class DepartmentAdminAssignmentSerializer(serializers.ModelSerializer):
                     'department_id': f"Selected department '{department.dept_name}' does not belong to degree '{degree.degree_name}'"
                 })
         
+        # Validation 3: MFA Verification
+        mfa_id = data.get('mfa_id')
+        user = self.context['request'].user
+        
+        try:
+            mfa_session = MFASession.objects.get(id=mfa_id, user=user)
+        except MFASession.DoesNotExist:
+            raise serializers.ValidationError({'mfa_id': "MFA session not found or does not belong to you."})
+            
+        if not mfa_session.is_verified:
+            raise serializers.ValidationError({'mfa_id': "MFA session is not verified. Please approve the push notification."})
+            
+        if mfa_session.action != 'Department Admin Assignment':
+            raise serializers.ValidationError({'mfa_id': f"MFA session was initiated for a different action: {mfa_session.action}"})
+            
+        # Check expiry (10 mins)
+        if timezone.now() > mfa_session.created_at + timezone.timedelta(minutes=10):
+            raise serializers.ValidationError({'mfa_id': "MFA session has expired. Please initiate a new one."})
+            
         return data
 
     @transaction.atomic
@@ -495,6 +593,7 @@ class DepartmentAdminAssignmentSerializer(serializers.ModelSerializer):
         """
         # The assigned_by field should be set by the view from request.user
         # If not already set, we'll handle it in the view
+        validated_data.pop('mfa_id', None)
         return DepartmentAdminAssignment.objects.create(**validated_data)
     
 
@@ -514,20 +613,28 @@ class UserRoleSerializer(serializers.ModelSerializer):
     """
     profile_details = serializers.SerializerMethodField(read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
+    all_roles = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'role', 'role_display', 'profile_details']
+        fields = ['id', 'username', 'email', 'role', 'all_roles', 'role_display', 'profile_details']
+
+    def get_all_roles(self, obj):
+        """
+        Returns a list of all roles applicable to the user.
+        Uses the model's get_all_roles() for consistency.
+        """
+        return obj.get_all_roles()
 
     def get_profile_details(self, obj):
-        # Faculty Profile
-        if obj.role == 'FACULTY':
+        # Faculty or Academic Coordinator with Faculty Profile
+        if obj.role in ['FACULTY', 'ACADEMIC_COORDINATOR', 'accedemic_coordinator']:
             faculty = getattr(obj, 'faculty_profile', None)
             if faculty:
                 return {
                     'name': faculty.faculty_name,
                     'id': faculty.employee_id,
-                    'details': f"Faculty ({faculty.faculty_gender})"
+                    'details': f"Faculty ({faculty.faculty_gender})" + (" (Academic Coordinator)" if obj.role in ["ACADEMIC_COORDINATOR", "accedemic_coordinator"] else "")
                 }
         
         # Student Profile
@@ -539,9 +646,9 @@ class UserRoleSerializer(serializers.ModelSerializer):
                     'id': student.roll_no,
                     'details': f"Batch: {student.batch}, Dept: {student.department.dept_code if student.department else 'N/A'}",
                     # Academic hierarchy for filtering support in frontend
-                    'school_id': str(student.degree.school.id) if student.degree and student.degree.school else None,
-                    'degree_id': str(student.degree.id) if student.degree else None,
-                    'department_id': str(student.department.id) if student.department else None,
+                    'school_id': str(student.degree.school.school_id) if student.degree and student.degree.school else None,
+                    'degree_id': str(student.degree.degree_id) if student.degree else None,
+                    'department_id': str(student.department.dept_id) if student.department else None,
                     'batch_name': student.batch
                 }
         
