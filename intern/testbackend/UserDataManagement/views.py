@@ -415,34 +415,39 @@ class FacultyTemplateDownloadAPIView(APIView):
                                                 Filter for Faculty based on school_code and dept_code
 ----------------------------------------------------------------------------------------------------------------------------------
 """
-
 class FacultyFilterAPIView(APIView):
     permission_classes = [IsCampusAdmin]
 
     def get(self, request):
-        school_code = request.query_params.get("school_code")
-        dept_code = request.query_params.get("dept_code")
+        school_name = request.query_params.get("school_name")
+        department_name = request.query_params.get("department_name")
 
-        if not school_code and not dept_code:
+        if not school_name and not department_name:
             return Response(
                 {
-                    "error": "At least one filter is required: school_code or dept_code"
+                    "error": "At least one filter is required: school_name or department_name"
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         mappings = FacultyMapping.objects.select_related(
-            "faculty", "school", "department"
+            "faculty",
+            "school",
+            "department",
         )
 
-        if school_code:
+        # -------------------------
+        # NAME → UUID MAPPING VIA FK JOIN
+        # -------------------------
+
+        if school_name:
             mappings = mappings.filter(
-                school__school_code__iexact=school_code
+                school__school_name__iexact=school_name
             )
 
-        if dept_code:
+        if department_name:
             mappings = mappings.filter(
-                department__dept_code__iexact=dept_code
+                department__dept_name__iexact=department_name
             )
 
         faculty_qs = (
@@ -462,7 +467,6 @@ class FacultyFilterAPIView(APIView):
             },
             status=status.HTTP_200_OK
         )
-
 
 
 
@@ -722,26 +726,40 @@ class StudentExcelTemplateDownloadAPIView(APIView):
 --------------------------------------------------------------------------------------------------------------------------------
 """
 
-
 class StudentFilterAPIView(APIView):
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
     def get(self, request):
-        dept_code = request.query_params.get("dept_code")
-        regulation_code = request.query_params.get("regulation")
+
+        school_name = request.query_params.get("school_name")
+        degree_name = request.query_params.get("degree_name")
+        dept_name = request.query_params.get("dept_name")
+        regulation_code = request.query_params.get("regulation_code")
 
         students = Student.objects.select_related(
+            "degree__school",
             "department",
             "regulation",
             "semester",
         )
 
-        # -----------------------------
-        # FILTERING (DB FIELD BASED)
-        # -----------------------------
-        if dept_code:
+        # -------------------------
+        # INDEPENDENT FILTERING
+        # -------------------------
+
+        if school_name:
             students = students.filter(
-                department__dept_code__iexact=dept_code
+                degree__school__school_name__iexact=school_name
+            )
+
+        if degree_name:
+            students = students.filter(
+                degree__degree_name__iexact=degree_name
+            )
+
+        if dept_name:
+            students = students.filter(
+                department__dept_name__iexact=dept_name
             )
 
         if regulation_code:
@@ -749,43 +767,26 @@ class StudentFilterAPIView(APIView):
                 regulation__regulation_code__iexact=regulation_code
             )
 
-        degree_code = request.query_params.get("degree")
-        if degree_code:
-            students = students.filter(
-                degree__degree_code__iexact=degree_code
-            )
-
-        section = request.query_params.get("section")
-        if section:
-            students = students.filter(
-                section__iexact=section
-            )
-
-        # -----------------------------
-        # RESPONSE FORMAT
-        # -----------------------------
-        data = [
-            {
-                "roll_no": s.roll_no,
-                "student_name": s.student_name,
-                "student_email": s.student_email,
-                # 👇 response key can be anything
-                "department": s.department.dept_code,
-                "regulation": s.regulation.regulation_code,
-                "semester": s.semester.sem_number,
-                "section": s.section,
-                "is_active": s.is_active,
-            }
-            for s in students
-        ]
+        data = students.values(
+            "roll_no",
+            "student_name",
+            "student_email",
+            "degree__school__school_name",
+            "degree__degree_name",
+            "department__dept_name",
+            "regulation__regulation_code",
+            "semester__sem_number",
+            "section",
+            "is_active",
+        )
 
         return Response(
             {
-                "count": len(data),
+                "count": students.count(),
                 "results": data,
-            },
-            status=status.HTTP_200_OK,
+            }
         )
+
 
 
 # ==================================================================================
