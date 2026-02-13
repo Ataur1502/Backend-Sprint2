@@ -3,7 +3,12 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
-from AcademicSetup.models import Section 
+from django.http import HttpResponse
+import pandas as pd
+import io
+from rest_framework.parsers import MultiPartParser, FormParser
+from Creation.models import School, Degree, Department, Regulation, Semester
+from AcademicSetup.models import Section
 from .models import (
     AcademicClass, 
     AcademicClassStudent, 
@@ -615,3 +620,178 @@ class TimetableListAPIView(APIView):
         serializer = TimetableViewSerializer(timetables, many=True)
 
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# =====================================================
+# BULK IMPORT TEMPLATES (COURSE ONLY)
+# =====================================================
+class BulkImportTemplateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, entity_type):
+        allowed, error = ensure_department_admin(request)
+        if not allowed:
+            return error
+
+        if entity_type == 'course':
+            columns = [
+                'Course Name', 
+                'Course Code', 
+                'School Code', 
+                'Degree Code', 
+                'Department Code', 
+                'Regulation Code', 
+                'Credit Value', 
+                'L', 'T', 'P', 
+                'Category', 
+                'Course Type',
+            ]
+            filename = 'course_import_template.xlsx'
+        else:
+            return Response(
+                {"error": "Invalid entity type. Use: course"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        df = pd.DataFrame(columns=columns)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Template')
+            
+            instructions = pd.DataFrame({
+                'Field': columns,
+                'Required': ['Yes'] * len(columns),
+                'Description': [
+                    'Name of the course', 
+                    'Unique course code', 
+                    'School code (e.g. SOE)', 
+                    'Degree code (e.g. B.Tech)', 
+                    'Department code (e.g. CSE)', 
+                    'Regulation code (e.g. R25)', 
+                    'Credit points (e.g. 3 or 4)', 
+                    'Lecture Hours', 'Tutorial Hours', 'Practical Hours', 
+                    'THEORY, PRACTICAL, or PROJECT', 
+                    'CORE, ELECTIVE, OPEN_ELECTIVE, or LAB',
+                ]
+            })
+            instructions.to_excel(writer, index=False, sheet_name='Instructions')
+
+        output.seek(0)
+        
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename={filename}'
+        return response
+
+
+# =====================================================
+# BULK IMPORT UPLOAD (COURSE ONLY)
+# =====================================================
+class BulkImportUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @transaction.atomic
+    def post(self, request, entity_type):
+        
+        allowed, error = ensure_department_admin(request)
+        if not allowed:
+            return error
+
+        if entity_type != 'course':
+            return Response({"error": "Invalid entity type. Use: course"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if 'file' not in request.FILES:
+            return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        file = request.FILES['file']
+        if not file.name.endswith('.xlsx'):
+            return Response({"error": "Please upload a valid Excel (.xlsx) file"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            df = pd.read_excel(file)
+            df = df.where(pd.notnull(df), None)
+        except Exception as e:
+            return Response({"error": f"Failed to read file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        created_count = 0
+        errors = []
+
+        try:
+            for index, row in df.iterrows():
+                try:
+                    # 1. Extract Fields
+                    course_name = row.get('Course Name')
+                    course_code = row.get('Course Code')
+                    school_code = row.get('School Code')
+                    degree_code = row.get('Degree Code')
+                    dept_code = row.get('Department Code')
+                    reg_code = row.get('Regulation Code')
+                    credit_value = row.get('Credit Value')
+                    l = row.get('L', 0)
+                    t = row.get('T', 0)
+                    p = row.get('P', 0)
+                    category = str(row.get('Category', 'THEORY')).upper()
+                    course_type = str(row.get('Course Type', 'CORE')).upper()
+                    
+                    # DEFAULT BATCH (Since user requested removal from template)
+                    batch = "MASTER" 
+
+                    if not all([course_name, course_code, school_code, degree_code, dept_code, reg_code, credit_value]):
+                        errors.append(f"Row {index+2}: Missing required fields")
+                        continue
+
+                    # 2. Resolve Foreign Keys
+                    school = School.objects.filter(school_code=school_code).first()
+                    if not school:
+                        errors.append(f"Row {index+2}: School '{school_code}' not found")
+                        continue
+
+                    degree = Degree.objects.filter(degree_code=degree_code, school=school).first()
+                    if not degree:
+                        errors.append(f"Row {index+2}: Degree '{degree_code}' not found in School '{school_code}'")
+                        continue
+
+                    dept = Department.objects.filter(dept_code=dept_code, degree=degree).first()
+                    if not dept:
+                        errors.append(f"Row {index+2}: Department '{dept_code}' not found in Degree '{degree_code}'")
+                        continue
+
+                    regulation = Regulation.objects.filter(regulation_code=reg_code, degree=degree).first()
+                    if not regulation:
+                        errors.append(f"Row {index+2}: Regulation '{reg_code}' not found")
+                        continue
+
+                    # 3. Create/Update Course
+                    Course.objects.update_or_create(
+                        course_code=course_code,
+                        regulation=regulation,
+                        batch=batch,
+                        defaults={
+                            'course_name': course_name,
+                            'school': school,
+                            'degree': degree,
+                            'department': dept,
+                            'credit_value': credit_value,
+                            'lecture_hours': l,
+                            'tutorial_hours': t,
+                            'practical_hours': p,
+                            'course_category': category,
+                            'course_type': course_type,
+                            'status': True
+                        }
+                    )
+                    created_count += 1
+
+                except Exception as e:
+                    errors.append(f"Row {index+2}: {str(e)}")
+            
+            return Response({
+                "message": f"Successfully processed {created_count} courses",
+                "errors": errors if errors else None
+            }, status=status.HTTP_201_CREATED if created_count > 0 else status.HTTP_200_OK)
+
+        except Exception as e:
+             return Response({"error": f"Processing error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

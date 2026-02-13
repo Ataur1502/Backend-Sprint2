@@ -207,18 +207,12 @@ class StudentExcelUploadSerializer(serializers.Serializer):
         "parent_phone_number",
         "regulation",
         "dept_code",
-        # "section" is optional, checked dynamically
+        "section",
     ]
 
     def save(self, **kwargs):
         workbook = load_workbook(self.validated_data["file"])
         sheet = workbook.active
-
-        # Check if "section" header exists
-        headers = [cell.value for cell in sheet[1]]
-        section_idx = -1
-        if "section" in headers:
-            section_idx = headers.index("section")
 
         created = 0
         skipped = []
@@ -268,12 +262,8 @@ class StudentExcelUploadSerializer(serializers.Serializer):
                 parent_phone_number,
                 regulation_code,
                 dept_code,
-            ) = row[:10]
-
-            # Optional Section
-            section = None
-            if section_idx != -1 and len(row) > section_idx:
-                section = row[section_idx]
+                section,
+            ) = row[:11]
 
 
             # -------------------------------------------------

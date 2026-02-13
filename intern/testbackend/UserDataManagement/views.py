@@ -700,13 +700,14 @@ class StudentExcelTemplateDownloadAPIView(APIView):
             "parent_phone_number",
             "regulation",
             "dept_code",
+            "section",
         ]
 
         # Write header row
         sheet.append(headers)
 
         # Optional: set column widths (nice UX)
-        column_widths = [15, 20, 25, 15, 22, 22, 20, 22, 15, 15]
+        column_widths = [15, 20, 25, 15, 22, 22, 20, 22, 15, 15, 10]
         for i, width in enumerate(column_widths, start=1):
             sheet.column_dimensions[chr(64 + i)].width = width
 
