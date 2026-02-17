@@ -18,6 +18,7 @@ class Course(models.Model):
 
     course_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     course_name = models.CharField(max_length=255)
+    course_short_name = models.CharField(max_length=50, blank=True, null=True, help_text="Abbreviated course name")
     course_code = models.CharField(max_length=50, unique=True)
     course_type = models.CharField(max_length=20, choices=COURSE_TYPE_CHOICES)
     
@@ -26,7 +27,6 @@ class Course(models.Model):
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='courses')
     regulation = models.ForeignKey(Regulation, on_delete=models.CASCADE, related_name='courses')
     
-    batch = models.CharField(max_length=50) # Academic Year
     credit_value = models.DecimalField(max_digits=5, decimal_places=2)
     
     lecture_hours = models.PositiveIntegerField(default=0)
@@ -37,8 +37,13 @@ class Course(models.Model):
     status = models.BooleanField(default=True) # Active/Inactive
 
     class Meta:
-        unique_together = ('course_code', 'regulation', 'batch')
+        unique_together = ('course_code', 'regulation')
 
+    @property
+    def batch(self):
+        """Backward compatibility property - returns batch from regulation."""
+        return self.regulation.batch if self.regulation else None
+    
     def __str__(self):
         return f"{self.course_name} ({self.course_code})"
 

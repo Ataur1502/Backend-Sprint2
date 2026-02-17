@@ -190,6 +190,7 @@ from openpyxl import load_workbook
 
 from django.contrib.auth import get_user_model
 from .models import Student, Department, Regulation, Semester
+from AcademicSetup.models import Section
 
 User = get_user_model()
 
@@ -307,6 +308,19 @@ class StudentExcelUploadSerializer(serializers.Serializer):
                 errors.append({
                     "row": row_no,
                     "error": "Semester not found",
+                })
+                continue
+
+            # Validate section exists
+            section_obj = Section.objects.filter(
+                name__iexact=section,
+                department=department,
+                regulation=regulation
+            ).first()
+            if not section_obj:
+                errors.append({
+                    "row": row_no,
+                    "error": f"Section '{section}' does not exist for department '{dept_code}' and regulation '{regulation_code}'. Please create the section first.",
                 })
                 continue
 

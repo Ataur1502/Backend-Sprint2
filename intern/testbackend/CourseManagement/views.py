@@ -636,6 +636,7 @@ class BulkImportTemplateView(APIView):
         if entity_type == 'course':
             columns = [
                 'Course Name', 
+                'Course Short Name',
                 'Course Code', 
                 'School Code', 
                 'Degree Code', 
@@ -660,9 +661,10 @@ class BulkImportTemplateView(APIView):
             
             instructions = pd.DataFrame({
                 'Field': columns,
-                'Required': ['Yes'] * len(columns),
+                'Required': ['Yes', 'No', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes'],
                 'Description': [
                     'Name of the course', 
+                    'Abbreviated course name (optional)',
                     'Unique course code', 
                     'School code (e.g. SOE)', 
                     'Degree code (e.g. B.Tech)', 
@@ -724,6 +726,7 @@ class BulkImportUploadView(APIView):
                 try:
                     # 1. Extract Fields
                     course_name = row.get('Course Name')
+                    course_short_name = row.get('Course Short Name')  # Optional field
                     course_code = row.get('Course Code')
                     school_code = row.get('School Code')
                     degree_code = row.get('Degree Code')
@@ -735,9 +738,6 @@ class BulkImportUploadView(APIView):
                     p = row.get('P', 0)
                     category = str(row.get('Category', 'THEORY')).upper()
                     course_type = str(row.get('Course Type', 'CORE')).upper()
-                    
-                    # DEFAULT BATCH (Since user requested removal from template)
-                    batch = "MASTER" 
 
                     if not all([course_name, course_code, school_code, degree_code, dept_code, reg_code, credit_value]):
                         errors.append(f"Row {index+2}: Missing required fields")
@@ -764,13 +764,13 @@ class BulkImportUploadView(APIView):
                         errors.append(f"Row {index+2}: Regulation '{reg_code}' not found")
                         continue
 
-                    # 3. Create/Update Course
+                    # 3. Create/Update Course (batch is now accessed via regulation.batch)
                     Course.objects.update_or_create(
                         course_code=course_code,
                         regulation=regulation,
-                        batch=batch,
                         defaults={
                             'course_name': course_name,
+                            'course_short_name': course_short_name if pd.notna(course_short_name) else None,
                             'school': school,
                             'degree': degree,
                             'department': dept,
