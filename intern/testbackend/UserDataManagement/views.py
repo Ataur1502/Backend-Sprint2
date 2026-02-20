@@ -6,7 +6,6 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import Faculty, FacultyMapping, Student, DepartmentAdminAssignment
 from .serializers import FacultySerializer,StudentPatchSerializer, DepartmentAdminAssignmentSerializer
 from Creation.permissions import IsCollegeAdmin
-from AcademicSetup.permissions import IsCampusAdmin
 from datetime import datetime 
 import openpyxl
 from django.http import HttpResponse
@@ -126,7 +125,7 @@ class FacultyViewSet(viewsets.ModelViewSet):
             )
 
 class FacultyMappingOptionsView(APIView):
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
 
     def get(self, request):
         schools = School.objects.all().prefetch_related('degrees__departments')
@@ -182,7 +181,7 @@ def parse_excel_date(value):
 
 
 class FacultyBulkUploadAPIView(APIView):
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     parser_classes = [MultiPartParser]
 
     def post(self, request):
@@ -416,7 +415,7 @@ class FacultyTemplateDownloadAPIView(APIView):
 ----------------------------------------------------------------------------------------------------------------------------------
 """
 class FacultyFilterAPIView(APIView):
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
 
     def get(self, request):
         school_name = request.query_params.get("school_name")
@@ -821,7 +820,7 @@ class DepartmentAdminAssignmentViewSet(viewsets.ModelViewSet):
         'faculty', 'school', 'degree', 'department', 'assigned_by'
     )
     serializer_class = DepartmentAdminAssignmentSerializer
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     lookup_field = 'assignment_id'
     
     def perform_create(self, serializer):
@@ -842,7 +841,7 @@ class DegreesForSchoolView(APIView):
     This is used in the frontend to populate the Degree dropdown after
     a School is selected, ensuring only relevant degrees are shown.
     """
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     
     def get(self, request):
         school_id = request.query_params.get('school_id')
@@ -870,7 +869,7 @@ class DepartmentsForDegreeView(APIView):
     This is used in the frontend to populate the Department dropdown after
     a Degree is selected, ensuring only relevant departments are shown.
     """
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     
     def get(self, request):
         degree_id = request.query_params.get('degree_id')
@@ -899,7 +898,7 @@ class FacultySearchView(APIView):
     Supports partial matching on both full_name and employee_id.
     Only returns active faculty members.
     """
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     
     def get(self, request):
         search_query = request.query_params.get('q', '').strip()

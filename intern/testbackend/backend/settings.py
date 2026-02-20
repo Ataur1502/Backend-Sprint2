@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'StudentServices',
     'CourseConfiguration',
     'CourseManagement',
+    'faculty',
 ]
 
 MIDDLEWARE = [

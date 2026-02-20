@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import AcademicCalendar
 from .serializers import AcademicCalendarSerializer
-from .permissions import IsCampusAdmin
+from Creation.permissions import IsCollegeAdmin
 
 class AcademicCalendarViewSet(viewsets.ModelViewSet):
     """
@@ -15,7 +15,7 @@ class AcademicCalendarViewSet(viewsets.ModelViewSet):
     queryset = AcademicCalendar.objects.all().order_by('-created_at')
     serializer_class = AcademicCalendarSerializer
     parser_classes = (MultiPartParser, FormParser, JSONParser)
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     lookup_field = 'calendar_id'
 
     def get_queryset(self):
@@ -82,7 +82,7 @@ class TimeTableTemplateViewSet(viewsets.ModelViewSet):
     """
     queryset = TimeTableTemplate.objects.all().order_by('-created_at')
     serializer_class = TimeTableTemplateSerializer
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     lookup_field = 'template_id'
 
     def get_queryset(self):
@@ -102,7 +102,7 @@ class SectionViewSet(viewsets.ModelViewSet):
     """
     queryset = Section.objects.all().order_by('name')
     serializer_class = SectionSerializer
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     lookup_field = 'section_id'
 
     def get_queryset(self):
@@ -131,7 +131,7 @@ class CalendarEventViewSet(viewsets.ModelViewSet):
     """
     queryset = CalendarEvent.objects.all().order_by('start_date')
     serializer_class = CalendarEventSerializer
-    permission_classes = [IsCampusAdmin]
+    permission_classes = [IsCollegeAdmin]
     lookup_field = 'event_id'
 
     def get_queryset(self):

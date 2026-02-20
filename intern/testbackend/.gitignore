@@ -6,6 +6,7 @@ media/
 
 # Environment variables
 .env
+kill/
 venv/
 env/
 ENV/
