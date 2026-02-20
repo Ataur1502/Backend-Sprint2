@@ -183,7 +183,7 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),
     'ROTATE_REFRESH_TOKENS': True,
     'LEEWAY': timedelta(seconds=15), # Added leeway for our own tokens too
 }

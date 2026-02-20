@@ -1,185 +1,176 @@
 import uuid
 from django.db import models
 from django.conf import settings
-from Creation.models import Regulation, Semester, Department
-from CourseConfiguration.models import Course
-from AcademicSetup.models import Section
-from CourseManagement.models import AcademicClass
-
-class CourseRegistrationWindow(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
-    regulation = models.ForeignKey(Regulation, on_delete=models.CASCADE, related_name='course_reg_windows_regulation')
-    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name='course_reg_windows_semester')
-    
-    academic_year = models.CharField(max_length=20, help_text="e.g. 2025-26")
-    start_datetime = models.DateTimeField()
-    end_datetime = models.DateTimeField()
-    
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = "Course Registration Window"
-        unique_together = ('regulation', 'semester', 'academic_year')
-
-    def __str__(self):
-        return f"Registration Window: {self.regulation.regulation_code} - {self.semester.sem_name} ({self.academic_year})"
+from django.db.models import Sum
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+from django.db.models import Q
 
 
-class CourseRegistration(models.Model):
-    STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
-        ('REGISTERED', 'Registered'),
-    ]
+# ============================================================
+# LECTURE PLAN
+# ============================================================
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
-    student = models.ForeignKey(
-        'UserDataManagement.Student', 
-        on_delete=models.CASCADE, 
-        related_name='registrations'
-    )
-    
-    semester = models.ForeignKey(Semester, on_delete=models.CASCADE)
-    academic_year = models.CharField(max_length=20)
-    
-    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='DRAFT')
-    total_credits = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    
-    is_locked = models.BooleanField(default=False)
-    submitted_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ('student', 'semester', 'academic_year')
-
-    def __str__(self):
-        return f"{self.student.roll_no} - {self.semester.sem_name} ({self.status})"
-
-
-class CourseRegistrationItem(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
-    registration = models.ForeignKey(
-        CourseRegistration, 
-        on_delete=models.CASCADE, 
-        related_name='items'
-    )
-    
-    course = models.ForeignKey(Course, on_delete=models.CASCADE)
-    is_mandatory = models.BooleanField(default=True)
-    
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ('registration', 'course')
-
-    def __str__(self):
-        return f"{self.registration.student.student_name} - {self.course.course_name}"
-
-
-class DocumentRequest(models.Model):
-    STATUS_CHOICES = [
-        ('SUBMITTED', 'Submitted'),
-        ('UNDER_REVIEW', 'Under Review'),
-        ('ON_HOLD', 'On Hold'),
-        ('APPROVED', 'Approved'),
-        ('REJECTED', 'Rejected'),
-        ('READY', 'Ready/Issued'),
-    ]
-
-    request_id = models.UUIDField(
+class LecturePlan(models.Model):
+    lecture_plan_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
 
-    student = models.ForeignKey(
-        'UserDataManagement.Student',
+    faculty_allocation = models.ForeignKey(
+        'CourseManagement.FacultyAllocation',
         on_delete=models.CASCADE,
-        related_name='document_requests'
+        related_name='lecture_plans'
     )
 
-    document_type = models.CharField(
-        max_length=100,
-        help_text="Bona fide / Memo / Certificate / TC etc"
-    )
-
-    purpose = models.TextField(
-        help_text="Reason for requesting the document"
-    )
-
-    supporting_doc = models.FileField(
-        upload_to='student_service_requests/',
+    uploaded_file = models.FileField(
+        upload_to='lecture_plans/',
         null=True,
         blank=True
     )
 
+    total_sessions = models.PositiveIntegerField()
+
     status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='SUBMITTED'
+        max_length=10,
+        choices=[('ACTIVE', 'Active'), ('INACTIVE', 'Inactive')],
+        default='ACTIVE'
     )
 
-    is_active = models.BooleanField(default=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('faculty_allocation', 'status')
+
 
     def __str__(self):
-        return f"{self.document_type} - {self.student.roll_no}"
+        return f"{self.faculty_allocation} - {self.status}"
 
 
-class DocumentRequestHistory(models.Model):
-    history_id = models.UUIDField(
+# ============================================================
+# LECTURE SESSION
+# ============================================================
+
+class LectureSession(models.Model):
+    allocation = models.ForeignKey(
+        'CourseManagement.FacultyAllocation',
+        on_delete=models.CASCADE,
+        related_name="lecture_sessions"
+    )
+
+    session_no = models.IntegerField()
+    session_date = models.DateField()
+    is_completed = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("allocation", "session_no")
+        ordering = ["session_no"]
+
+    def __str__(self):
+        return f"Session {self.session_no} - {self.session_date}"
+
+
+# ============================================================
+# ATTENDANCE
+# ============================================================
+
+class Attendance(models.Model):
+    attendance_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
 
-    request = models.ForeignKey(
-        DocumentRequest,
+    faculty_allocation = models.ForeignKey(
+        "CourseManagement.FacultyAllocation",
         on_delete=models.CASCADE,
-        related_name='history'
+        related_name="attendances",
+        db_index=True
     )
 
-    status = models.CharField(max_length=20)
-    remark = models.TextField(blank=True, null=True)
-
-    updated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True
+    lecture_session = models.OneToOneField(
+        "faculty.LectureSession",
+        on_delete=models.CASCADE,
+        related_name="attendance",
+        db_index=True
     )
 
-    updated_at = models.DateTimeField(auto_now_add=True)
+    is_submitted = models.BooleanField(default=False)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    override_until = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.request.request_id} → {self.status}"
+        return f"Attendance - {self.lecture_session.session_date}"
+
+
+class StudentAttendance(models.Model):
+
+    STATUS_CHOICES = (
+        ("PRESENT", "Present"),
+        ("ABSENT", "Absent"),
+    )
+
+    attendance = models.ForeignKey(
+        Attendance,
+        on_delete=models.CASCADE,
+        related_name="student_attendances",
+        db_index=True
+    )
+
+    student = models.ForeignKey(
+        "UserDataManagement.Student",
+        on_delete=models.CASCADE,
+        related_name="attendance_records",
+        db_index=True
+    )
+
+
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES
+    )
+
+    marked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("attendance", "student")
+        ordering = ["student"]
+
+    def __str__(self):
+        return f"{self.student} - {self.status}"
 
 
 # ============================================================
-# ASSIGNMENT MODELS
+# ASSIGNMENT
 # ============================================================
 
 class Assignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     faculty = models.ForeignKey(
-        'UserDataManagement.Faculty',
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="assignments"
     )
 
     academic_class = models.ForeignKey(
-        AcademicClass,
-        on_delete=models.CASCADE,
-        related_name="assignments"
+        "CourseManagement.AcademicClass",
+        on_delete=models.CASCADE
+    )
+
+    section = models.ForeignKey(
+        "AcademicSetup.Section",
+        on_delete=models.CASCADE
     )
 
     title = models.CharField(max_length=255)
-    description = models.TextField()
+    message = models.TextField()
 
     start_datetime = models.DateTimeField()
     end_datetime = models.DateTimeField()
@@ -188,8 +179,7 @@ class Assignment(models.Model):
 
     allowed_file_type = models.CharField(
         max_length=100,
-        help_text="Example: pdf, docx, jpg",
-        default="pdf"
+        help_text="Example: pdf, docx, jpg"
     )
 
     attachment = models.FileField(
@@ -218,7 +208,7 @@ class StudentSubmission(models.Model):
     )
 
     student = models.ForeignKey(
-        'UserDataManagement.Student',
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="submissions"
     )
@@ -234,26 +224,30 @@ class StudentSubmission(models.Model):
         ordering = ["-submitted_at"]
 
     def __str__(self):
-        return f"{self.student.student_name} - {self.assignment.title}"
+        return f"{self.student} - {self.assignment.title}"
 
 
 # ============================================================
-# QUIZ MODELS
+# QUIZ
 # ============================================================
 
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     faculty = models.ForeignKey(
-        'UserDataManagement.Faculty',
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="created_quizzes"
     )
 
     academic_class = models.ForeignKey(
-        AcademicClass,
-        on_delete=models.CASCADE,
-        related_name="quizzes"
+        "CourseManagement.AcademicClass",
+        on_delete=models.CASCADE
+    )
+
+    section = models.ForeignKey(
+        "AcademicSetup.Section",
+        on_delete=models.CASCADE
     )
 
     title = models.CharField(max_length=255)
@@ -276,6 +270,7 @@ class Quiz(models.Model):
 
 
 class Question(models.Model):
+
     QUESTION_TYPES = (
         ("MCQ", "Multiple Choice"),
         ("MSQ", "Multiple Select"),
@@ -328,7 +323,7 @@ class StudentQuizAttempt(models.Model):
     )
 
     student = models.ForeignKey(
-        'UserDataManagement.Student',
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="quiz_attempts"
     )
@@ -344,7 +339,7 @@ class StudentQuizAttempt(models.Model):
         unique_together = ("quiz", "student")
 
     def __str__(self):
-        return f"{self.student.student_name} - {self.quiz.title}"
+        return f"{self.student.username} - {self.quiz.title}"
 
 
 class StudentAnswer(models.Model):
@@ -369,10 +364,34 @@ class StudentAnswer(models.Model):
 
 
 # ============================================================
+# AUTO UPDATE QUIZ TOTAL MARKS
+# ============================================================
+
+def update_quiz_total_marks(quiz):
+    total = quiz.questions.aggregate(
+        total=Sum("marks")
+    )["total"] or 0
+
+    quiz.total_marks = total
+    quiz.save(update_fields=["total_marks"])
+
+
+@receiver(post_save, sender=Question)
+def update_total_marks_on_save(sender, instance, **kwargs):
+    update_quiz_total_marks(instance.quiz)
+
+
+@receiver(post_delete, sender=Question)
+def update_total_marks_on_delete(sender, instance, **kwargs):
+    update_quiz_total_marks(instance.quiz)
+
+
+# ============================================================
 # RESOURCES
 # ============================================================
 
 class Resource(models.Model):
+
     RESOURCE_TYPES = (
         ("PDF", "PDF"),
         ("PPT", "PowerPoint"),
@@ -385,15 +404,19 @@ class Resource(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     faculty = models.ForeignKey(
-        'UserDataManagement.Faculty',
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="uploaded_resources"
     )
 
     academic_class = models.ForeignKey(
-        AcademicClass,
-        on_delete=models.CASCADE,
-        related_name="resources"
+        "CourseManagement.AcademicClass",
+        on_delete=models.CASCADE
+    )
+
+    section = models.ForeignKey(
+        "AcademicSetup.Section",
+        on_delete=models.CASCADE
     )
 
     title = models.CharField(max_length=255)
