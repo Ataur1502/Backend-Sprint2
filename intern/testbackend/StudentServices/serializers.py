@@ -1,50 +1,20 @@
 from rest_framework import serializers
 from .models import (
-    DocumentRequest, DocumentRequestHistory, 
-    CourseRegistrationWindow, CourseRegistration, CourseRegistrationItem,
+    DocumentRequest, DocumentRequestHistory
+)
+from faculty.models import (
     Assignment, StudentSubmission, Quiz, Question, Option, 
     StudentQuizAttempt, StudentAnswer, Resource
 )
-from CourseConfiguration.models import Course
+from CourseConfiguration.models import Course, RegistrationWindow, StudentSelection
 
 # =====================================================
 # COURSE REGISTRATION SERIALIZERS
 # =====================================================
 
-class CourseRegistrationWindowSerializer(serializers.ModelSerializer):
-    regulation_code = serializers.CharField(source='regulation.regulation_code', read_only=True)
-    semester_name = serializers.CharField(source='semester.sem_name', read_only=True)
-
-    class Meta:
-        model = CourseRegistrationWindow
-        fields = '__all__'
-
-
-class CourseRegistrationItemSerializer(serializers.ModelSerializer):
-    course_name = serializers.CharField(source='course.course_name', read_only=True)
-    course_code = serializers.CharField(source='course.course_code', read_only=True)
-    credit_value = serializers.DecimalField(source='course.credit_value', max_digits=5, decimal_places=2, read_only=True)
-
-    class Meta:
-        model = CourseRegistrationItem
-        fields = [
-            'id', 'course', 'course_name', 'course_code', 
-            'credit_value', 'is_mandatory'
-        ]
-
-
-class CourseRegistrationSerializer(serializers.ModelSerializer):
-    items = CourseRegistrationItemSerializer(many=True, read_only=True)
-    semester_name = serializers.CharField(source='semester.sem_name', read_only=True)
-
-    class Meta:
-        model = CourseRegistration
-        fields = [
-            'id', 'student', 'semester', 'semester_name', 
-            'academic_year', 'status', 'total_credits', 
-            'is_locked', 'submitted_at', 'items', 'created_at'
-        ]
-        read_only_fields = ['id', 'status', 'total_credits', 'is_locked', 'submitted_at', 'created_at']
+# Consolidating with CourseConfiguration serializers where possible
+from CourseConfiguration.serializers import RegistrationWindowSerializer as CourseConfigRegWindowSerializer
+from CourseConfiguration.serializers import StudentSelectionSerializer as CourseConfigSelectionSerializer
 
 
 # =====================================================
@@ -104,12 +74,16 @@ class DocumentRequestHistorySerializer(serializers.ModelSerializer):
 # =====================================================
 
 class AssignmentSerializer(serializers.ModelSerializer):
-    faculty_name = serializers.CharField(source='faculty.user.first_name', read_only=True)
+    faculty_name = serializers.CharField(source='faculty.get_full_name', read_only=True)
     class_name = serializers.CharField(source='academic_class.department.dept_name', read_only=True)
 
     class Meta:
         model = Assignment
-        fields = '__all__'
+        fields = [
+            'id', 'faculty', 'faculty_name', 'academic_class', 'class_name',
+            'title', 'message', 'start_datetime', 'end_datetime',
+            'total_marks', 'allowed_file_type', 'attachment', 'created_at'
+        ]
 
 
 class StudentSubmissionSerializer(serializers.ModelSerializer):

@@ -1,8 +1,9 @@
 from django.shortcuts import render
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
-from faculty.models import LecturePlan, LectureSession, Attendance, StudentAttendance
+from faculty.models import LecturePlan, LectureSession, Attendance, StudentAttendance, Assignment, Quiz
 from .serializers import (
     LecturePlanCreateSerializer,
     LecturePlanDetailSerializer,
@@ -25,7 +26,6 @@ import openpyxl
 from datetime import timedelta
 from AcademicSetup.models import AcademicCalendar, CalendarEvent
 from CourseManagement.models import Timetable
-from faculty.models import LectureSession
 
 
 def generate_sessions(allocation):
@@ -601,6 +601,12 @@ class AssignmentAPIView(APIView):
 
     permission_classes = [IsAuthenticated, IsFaculty]
 
+    # ✅ List Assignments for Faculty
+    def get(self, request):
+        assignments = Assignment.objects.filter(faculty=request.user)
+        serializer = AssignmentSerializer(assignments, many=True)
+        return Response(serializer.data)
+
     # ✅ Create Assignment
     def post(self, request):
         serializer = AssignmentSerializer(
@@ -613,6 +619,14 @@ class AssignmentAPIView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        try:
+            assignment = Assignment.objects.get(pk=pk, faculty=request.user)
+            assignment.delete()
+            return Response({"message": "Assignment deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+        except Assignment.DoesNotExist:
+            return Response({"error": "Assignment not found"}, status=status.HTTP_404_NOT_FOUND)
 
     # ✅ Edit Assignment (PUT)
     def put(self, request, pk):
@@ -744,6 +758,11 @@ from Creation.permissions import IsFaculty
 class QuizCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsFaculty]
 
+    def get(self, request):
+        quizzes = Quiz.objects.filter(faculty=request.user)
+        serializer = QuizDetailSerializer(quizzes, many=True)
+        return Response(serializer.data)
+
     def post(self, request):
         serializer = QuizCreateSerializer(
             data=request.data,
@@ -777,6 +796,14 @@ class QuizUpdateAPIView(APIView):
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
+
+    def delete(self, request, quiz_id):
+        try:
+            quiz = Quiz.objects.get(id=quiz_id, faculty=request.user)
+            quiz.delete()
+            return Response({"message": "Quiz deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+        except Quiz.DoesNotExist:
+            return Response({"error": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 # =========================================
@@ -989,3 +1016,129 @@ class ResourceListAPIView(APIView):
         serializer = ResourceSerializer(resources, many=True)
 
         return Response(serializer.data)
+
+
+# =========================================
+# FACULTY DASHBOARD SUMMARY
+# =========================================
+
+class FacultyDashboardSummaryView(APIView):
+    permission_classes = [IsAuthenticated, IsFaculty]
+
+    def get(self, request):
+        faculty_profile = getattr(request.user, 'faculty_profile', None)
+        if not faculty_profile:
+            return Response({"error": "Faculty profile not found"}, status=403)
+
+        # 1. Allocated Classes
+        allocations = FacultyAllocation.objects.filter(faculty=faculty_profile)
+        
+        class_data = []
+        total_students_count = 0
+        
+        for alloc in allocations:
+        # Count students in this class / virtual section
+            if alloc.academic_class:
+                student_count = alloc.academic_class.students.count()
+                class_name = str(alloc.academic_class)
+                class_id = alloc.academic_class.class_id
+            else:
+                student_count = alloc.virtual_section.students.count()
+                class_name = f"Virtual: {alloc.virtual_section.name}"
+                class_id = str(alloc.virtual_section.virtual_id)
+
+            total_students_count += student_count
+            
+            class_data.append({
+                "allocation_id": str(alloc.allocation_id),
+                "class_id": class_id,
+                "section_id": alloc.section.id if alloc.section else (str(alloc.virtual_section.virtual_id) if alloc.virtual_section else None),
+                "class_name": class_name,
+                "course_name": alloc.course.course_name,
+                "student_count": student_count,
+                "is_virtual": alloc.virtual_section is not None
+            })
+
+        # 2. Assignment Summary
+        assignments = Assignment.objects.filter(faculty=request.user)
+        pending_assignments_count = assignments.filter(end_datetime__gt=timezone.now()).count()
+
+        # 3. Quiz Summary
+        quizzes = Quiz.objects.filter(faculty=request.user)
+        unpublished_quizzes_count = quizzes.filter(is_published=False).count()
+
+        # 4. Recent Activities (Attendance markers)
+        # Fetching last 5 attendance records
+        recent_attendance = Attendance.objects.filter(faculty_allocation__faculty=faculty_profile).select_related('faculty_allocation__academic_class', 'faculty_allocation__virtual_section').order_by('-date')[:5]
+        attendance_activities = []
+        for att in recent_attendance:
+            alloc = att.faculty_allocation
+            if alloc.academic_class:
+                class_label = str(alloc.academic_class)
+            elif alloc.virtual_section:
+                class_label = f"Virtual: {alloc.virtual_section.name}"
+            else:
+                class_label = "Unknown"
+
+            attendance_activities.append({
+                "date": att.date,
+                "class": class_label,
+                "status": "Submitted" if att.is_submitted else "Pending"
+            })
+
+        return Response({
+            "faculty_name": request.user.get_full_name(),
+            "employee_id": faculty_profile.employee_id,
+            "total_classes": allocations.count(),
+            "total_students": total_students_count,
+            "allocated_classes": class_data,
+            "tasks": {
+                "active_assignments": pending_assignments_count,
+                "unpublished_quizzes": unpublished_quizzes_count,
+            },
+            "recent_attendance": attendance_activities
+        })
+
+
+class StudentsForAllocationAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsFaculty, IsActiveFaculty]
+
+    def get(self, request):
+        allocation_id = request.query_params.get("allocation_id")
+        if not allocation_id:
+            return Response({"error": "allocation_id is required"}, status=400)
+
+        try:
+            faculty = request.user.faculty_profile
+            allocation = FacultyAllocation.objects.get(
+                allocation_id=allocation_id,
+                faculty=faculty
+            )
+        except FacultyAllocation.DoesNotExist:
+            return Response({"error": "Allocation not found or unauthorized"}, status=404)
+
+        student_data = []
+        if allocation.academic_class:
+            from CourseManagement.models import AcademicClassStudent
+            students_mappings = AcademicClassStudent.objects.filter(
+                academic_class=allocation.academic_class
+            ).select_related('student')
+            
+            for mapping in students_mappings:
+                student_data.append({
+                    "student_id": mapping.student.student_id,
+                    "roll_no": mapping.student.roll_no,
+                    "student_name": mapping.student.student_name,
+                })
+        elif allocation.virtual_section:
+            students = allocation.virtual_section.students.all()
+            for student in students:
+                student_data.append({
+                    "student_id": student.student_id,
+                    "roll_no": student.roll_no,
+                    "student_name": student.student_name,
+                })
+        else:
+            return Response({"error": "No academic class or virtual section associated"}, status=400)
+
+        return Response(student_data)

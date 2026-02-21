@@ -5,7 +5,9 @@ from .views import (
     CourseBulkUploadAPIView,
     RegistrationWindowViewSet,
     RegistrationMonitoringAPIView,
-    StudentCourseRegistrationAPIView
+    StudentCourseRegistrationAPIView,
+    ManualRegistrationAPIView,
+    ExtendRegistrationAPIView
 )
 from rest_framework.routers import DefaultRouter
 
@@ -21,6 +23,10 @@ urlpatterns = [
     path('', include(router.urls)),
     path('windows/<uuid:window_id>/monitor/', RegistrationMonitoringAPIView.as_view(), name='registration-monitor'),
     
+    # Academic Coordinator actions
+    path('windows/manual-register/', ManualRegistrationAPIView.as_view(), name='manual-registration'),
+    path('windows/<uuid:window_id>/extend/', ExtendRegistrationAPIView.as_view(), name='registration-extend'),
+
     # Student specific
     path('student/registration/', StudentCourseRegistrationAPIView.as_view(), name='student-registration'),
 ]

@@ -12,7 +12,7 @@ except Exception:
     Auth = None
 
 
-MFA_ROLES = ["COLLEGE_ADMIN", "ACADEMIC_COORDINATOR", "college_admin", "accedemic_coordinator"]
+MFA_ROLES = ["COLLEGE_ADMIN", "college_admin", "ACADEMIC_COORDINATOR", "academic_coordinator"]
 
 def log_debug(msg):
     """Append debug message to a file for analysis."""

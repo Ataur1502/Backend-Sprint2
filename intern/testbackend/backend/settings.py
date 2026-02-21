@@ -251,6 +251,21 @@ SOCIALACCOUNT_PROVIDERS = {
 REST_USE_JWT = True
 REST_AUTH_TOKEN_MODEL = None
 REST_SESSION_LOGIN = False # dj-rest-auth: don't use the default token model since we use JWT
+
+# =====================================================
+# EMAIL CONFIGURATION
+# =====================================================
+
+# For development, we'll use the console backend so emails appear in the terminal
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Production-ready SMTP settings (commented out or derived from .env)
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
+DEFAULT_FROM_EMAIL = os.environ.get('EMAIL_HOST_USER')
  
 
 

@@ -6,17 +6,20 @@ from django.utils import timezone
 from django.db import transaction
 
 from .models import (
-    DocumentRequest, DocumentRequestHistory,
-    CourseRegistrationWindow, CourseRegistration, CourseRegistrationItem,
-    Assignment, StudentSubmission, Quiz, Question, Option, 
-    StudentQuizAttempt, StudentAnswer, Resource
+    DocumentRequest, DocumentRequestHistory
 )
+from faculty.models import (
+    Assignment, StudentSubmission, Quiz, Question, Option, 
+    StudentQuizAttempt, StudentAnswer, Resource, StudentAttendance
+)
+from CourseManagement.models import AcademicClassStudent, FacultyAllocation
+from CourseConfiguration.models import Course, RegistrationWindow, StudentSelection
+from CourseConfiguration.serializers import RegistrationWindowSerializer, StudentSelectionSerializer
+
 from .serializers import (
     DocumentRequestSerializer,
     DocumentStatusUpdateSerializer,
     DocumentRequestHistorySerializer,
-    CourseRegistrationWindowSerializer,
-    CourseRegistrationSerializer,
     AssignmentSerializer,
     StudentSubmissionSerializer,
     QuizSerializer,
@@ -122,32 +125,32 @@ from CourseConfiguration.serializers import CourseSerializer
 # COURSE REGISTRATION VIEWS
 # =====================================================
 
-class CourseRegistrationViewSet(viewsets.ModelViewSet):
+class CourseRegistrationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
-    serializer_class = CourseRegistrationSerializer
+    serializer_class = StudentSelectionSerializer
 
     def get_queryset(self):
         if hasattr(self.request.user, 'student_profile'):
-            return CourseRegistration.objects.filter(student=self.request.user.student_profile)
-        return CourseRegistration.objects.none()
+            return StudentSelection.objects.filter(student=self.request.user.student_profile)
+        return StudentSelection.objects.none()
 
     @action(detail=False, methods=['get'])
     def available_courses(self, request):
         """
-        Returns courses available for registration in the active window.
-        - Mandatory courses from the student's regulation/semester.
-        - Electives defined in the active RegistrationWindow.
+        Redirects to the improved StudentCourseRegistrationAPIView in CourseConfiguration
+        or replicates logic here using RegistrationWindow.
         """
         if not hasattr(request.user, 'student_profile'):
             return Response({"detail": "Only students can access registration"}, status=403)
         
         student = request.user.student_profile
         
-        # 1. Find active window
-        window = CourseRegistrationWindow.objects.filter(
-            regulation=student.regulation,
-            semester=student.semester,
+        # 1. Find active window for this student
+        window = RegistrationWindow.objects.filter(
+            department=student.department,
+            batch=student.batch,
             is_active=True,
+            status='ACTIVE',
             start_datetime__lte=timezone.now(),
             end_datetime__gte=timezone.now()
         ).first()
@@ -155,82 +158,12 @@ class CourseRegistrationViewSet(viewsets.ModelViewSet):
         if not window:
             return Response({"detail": "No active registration window found for your semester/regulation."}, status=404)
         
-        # 2. Fetch Mandatory Courses for this semester/regulation
-        mandatory_courses = Course.objects.filter(
-            regulation=student.regulation,
-            semester=student.semester, # This assumes Semester is linked to Course or we filter by regulation
-            course_type='CORE'
-        )
-        
-        # 3. Fetch Electives (from the Window or general pool)
-        # Note: If CourseConfiguration.RegistrationWindow is used, we might need to sync or cross-reference.
-        # For now, we'll fetch based on Course model.
-        elective_courses = Course.objects.filter(
-            regulation=student.regulation,
-            course_type__in=['ELECTIVE', 'OPEN_ELECTIVE']
-        )
-
+        # 2. Fetch courses from the window
         return Response({
-            "window": CourseRegistrationWindowSerializer(window).data,
-            "mandatory_courses": CourseSerializer(mandatory_courses, many=True).data,
-            "elective_courses": CourseSerializer(elective_courses, many=True).data,
+            "window": RegistrationWindowSerializer(window).data,
+            "major_subjects": CourseSerializer(window.major_subjects.all(), many=True).data,
+            "elective_subjects": CourseSerializer(window.elective_subjects.all(), many=True).data,
         })
-
-    def create(self, request, *args, **kwargs):
-        """
-        Submit course registration.
-        Expects: { "semester": uuid, "academic_year": "2025-26", "course_ids": [uuid, ...] }
-        """
-        if not hasattr(request.user, 'student_profile'):
-            return Response({"detail": "Not authorized"}, status=403)
-            
-        student = request.user.student_profile
-        course_ids = request.data.get('course_ids', [])
-        
-        # Check if already registered/locked
-        existing = CourseRegistration.objects.filter(
-            student=student, 
-            semester_id=request.data.get('semester'), 
-            academic_year=request.data.get('academic_year')
-        ).first()
-        
-        if existing and existing.is_locked:
-            return Response({"detail": "Registration is already locked and cannot be modified."}, status=400)
-
-        with transaction.atomic():
-            registration, created = CourseRegistration.objects.get_or_create(
-                student=student,
-                semester_id=request.data.get('semester'),
-                academic_year=request.data.get('academic_year'),
-                defaults={'status': 'DRAFT'}
-            )
-            
-            # Clear existing items if updating
-            registration.items.all().delete()
-            
-            total_credits = 0
-            for cid in course_ids:
-                course = Course.objects.get(course_id=cid)
-                CourseRegistrationItem.objects.create(
-                    registration=registration,
-                    course=course,
-                    is_mandatory=(course.course_type == 'CORE')
-                )
-                total_credits += course.credit_value
-                
-            registration.total_credits = total_credits
-            registration.save()
-            
-        return Response(CourseRegistrationSerializer(registration).data, status=status.HTTP_201_CREATED)
-
-    @action(detail=True, methods=['post'])
-    def lock(self, request, pk=None):
-        registration = self.get_object()
-        registration.is_locked = True
-        registration.status = 'REGISTERED'
-        registration.submitted_at = timezone.now()
-        registration.save()
-        return Response({"status": "locked"})
 
 # =====================================================
 # STUDENT PORTAL / DASHBOARD VIEWS
@@ -246,17 +179,21 @@ class StudentDashboardSummaryView(APIView):
         student = request.user.student_profile
         
         # 1. Registration Status
-        current_reg = CourseRegistration.objects.filter(student=student).order_by('-created_at').first()
+        current_reg = StudentSelection.objects.filter(student=student).order_by('-submitted_at').first()
         
         # 2. Document Requests (Recent 3)
         recent_docs = DocumentRequest.objects.filter(student=student).order_by('-created_at')[:3]
         
-        # 3. Attendance Summary (Aggregated from CourseManagement - PLACEHOLDER)
-        # In a real scenario, we'd query Attendace records per course
+        # 3. Attendance Summary
+        attendance_records = StudentAttendance.objects.filter(student=student)
+        total_sessions = attendance_records.count()
+        attended_sessions = attendance_records.filter(status='PRESENT').count()
+        overall_percentage = (attended_sessions / total_sessions * 100) if total_sessions > 0 else 0
+        
         attendance_summary = {
-            "overall_percentage": 85.5,
-            "classes_attended": 120,
-            "total_classes": 140
+            "overall_percentage": round(overall_percentage, 2),
+            "classes_attended": attended_sessions,
+            "total_classes": total_sessions
         }
         
         # 4. Academic Info
@@ -264,21 +201,46 @@ class StudentDashboardSummaryView(APIView):
             "regulation": student.regulation.regulation_code,
             "semester": student.semester.sem_number,
             "department": student.department.dept_name,
-            "section": student.section if hasattr(student, 'section') else "A"
+            "section": student.section.name if hasattr(student, 'section') and student.section else "A"
         }
 
-        # 5. External Integration Placeholders (Quiz/Assignments)
-        # These will be populated once the Faculty app code is integrated.
-        upcoming_tasks = [
-            {"type": "Quiz", "title": "Data Structures - Mid Quiz", "date": "2025-03-10", "status": "PENDING"},
-            {"type": "Assignment", "title": "Python Basics - HW1", "date": "2025-03-05", "status": "SUBMITTED"}
-        ]
+        # 5. Upcoming Tasks (Quiz/Assignments)
+        class_ids = AcademicClassStudent.objects.filter(student=student).values_list('academic_class_id', flat=True)
+        
+        # Get pending assignments
+        pending_assignments = Assignment.objects.filter(
+            academic_class_id__in=class_ids,
+            end_datetime__gt=timezone.now()
+        ).order_by('end_datetime')[:5]
+        
+        # Get active quizzes
+        active_quizzes = Quiz.objects.filter(
+            academic_class_id__in=class_ids,
+            is_published=True,
+            access_end_datetime__gt=timezone.now()
+        ).order_by('access_end_datetime')[:5]
+
+        upcoming_tasks = []
+        for a in pending_assignments:
+            upcoming_tasks.append({
+                "type": "Assignment",
+                "title": a.title,
+                "date": a.end_datetime.strftime("%Y-%m-%d"),
+                "status": "PENDING"
+            })
+        for q in active_quizzes:
+            upcoming_tasks.append({
+                "type": "Quiz",
+                "title": q.title,
+                "date": q.access_end_datetime.strftime("%Y-%m-%d"),
+                "status": "AVAILABLE"
+            })
 
         return Response({
             "student_name": student.student_name,
             "roll_no": student.roll_no,
             "academic_info": academic_info,
-            "registration": CourseRegistrationSerializer(current_reg).data if current_reg else None,
+            "registration": StudentSelectionSerializer(current_reg).data if current_reg else None,
             "recent_document_requests": DocumentRequestSerializer(recent_docs, many=True).data,
             "attendance": attendance_summary,
             "upcoming_tasks": upcoming_tasks
@@ -312,7 +274,7 @@ class StudentAssignmentViewSet(viewsets.ReadOnlyModelViewSet):
             
         submission, created = StudentSubmission.objects.get_or_create(
             assignment=assignment,
-            student=student,
+            student=request.user,
             defaults={'file': file}
         )
         if not created:
@@ -365,7 +327,7 @@ class StudentQuizViewSet(viewsets.ReadOnlyModelViewSet):
             
         attempt, created = StudentQuizAttempt.objects.get_or_create(
             quiz=quiz,
-            student=student,
+            student=request.user,
             defaults={
                 'calculated_end_time': now + timezone.timedelta(minutes=quiz.quiz_time)
             }
@@ -375,8 +337,7 @@ class StudentQuizViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['post'])
     def submit_answer(self, request, pk=None):
         quiz = self.get_object()
-        student = request.user.student_profile
-        attempt = StudentQuizAttempt.objects.get(quiz=quiz, student=student)
+        attempt = StudentQuizAttempt.objects.get(quiz=quiz, student=request.user)
         
         if attempt.is_submitted:
             return Response({"detail": "Already submitted"}, status=400)
@@ -400,8 +361,7 @@ class StudentQuizViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['post'])
     def finalize(self, request, pk=None):
         quiz = self.get_object()
-        student = request.user.student_profile
-        attempt = StudentQuizAttempt.objects.get(quiz=quiz, student=student)
+        attempt = StudentQuizAttempt.objects.get(quiz=quiz, student=request.user)
         
         if attempt.is_submitted:
             return Response({"detail": "Already submitted"}, status=400)

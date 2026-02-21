@@ -24,7 +24,9 @@ from .views import(
     ResourceCreateAPIView,
     ResourceUpdateAPIView,
     ResourceDeleteAPIView,
-    ResourceListAPIView
+    ResourceListAPIView,
+    FacultyDashboardSummaryView,
+    StudentsForAllocationAPIView
 )
 
 router = DefaultRouter()
@@ -40,6 +42,10 @@ router.register(r'student-attendance', StudentAttendanceViewSet, basename='stude
 
 
 urlpatterns = [
+    # Dashboard
+    path("dashboard/", FacultyDashboardSummaryView.as_view(), name="faculty-dashboard"),
+    path("students-for-allocation/", StudentsForAllocationAPIView.as_view(), name="students-for-allocation"),
+
     #Lecture plan
     path("lecture-plans/template/", LecturePlanTemplateView.as_view(), name="lecture-plan-template"),
     path("lecture-plans/progress/", LecturePlanProgressAPIView.as_view()),
@@ -57,6 +63,7 @@ urlpatterns = [
     path("<uuid:quiz_id>/update/", QuizUpdateAPIView.as_view()),
     path("<uuid:quiz_id>/publish/", PublishQuizAPIView.as_view()),
     path("<uuid:quiz_id>/detail/", QuizDetailAPIView.as_view()),
+    path("<uuid:quiz_id>/results/", QuizDetailAPIView.as_view()), # Using Detail for now or create new
     path("add-question/", AddQuestionAPIView.as_view()),
     path("add-option/", AddOptionAPIView.as_view()),
     #Resources

@@ -54,6 +54,7 @@ ALLOWED_GENDERS = ["MALE", "FEMALE", "OTHER"]
 #Faculty Individual upload
 
 class FacultyViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsCollegeAdmin]
     queryset = Faculty.objects.all()
     serializer_class = FacultySerializer
     lookup_field = "employee_id"   # 🔑 IMPORTANT
@@ -134,7 +135,7 @@ class FacultyMappingOptionsView(APIView):
         for school in schools:
             options.append({
                 "label": f"{school.school_name} (Full School)",
-                "school_id": str(school.id),
+                "school_id": str(school.school_id),
                 "department_id": None
             })
 
@@ -142,8 +143,8 @@ class FacultyMappingOptionsView(APIView):
                 for dept in degree.departments.all():
                     options.append({
                         "label": f"{school.school_name} - {dept.dept_name}",
-                        "school_id": str(school.id),
-                        "department_id": str(dept.id)
+                        "school_id": str(school.school_id),
+                        "department_id": str(dept.dept_id)
                     })
 
         return Response(options)
@@ -640,6 +641,10 @@ class StudentDetailAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    def put(self, request, roll_no):
+        """Allow full updates via PUT, delegating to the patch logic."""
+        return self.patch(request, roll_no)
+
     def patch(self, request, roll_no):
         student = Student.objects.filter(roll_no=roll_no).first()
         if not student:
@@ -822,12 +827,94 @@ class DepartmentAdminAssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = DepartmentAdminAssignmentSerializer
     permission_classes = [IsCollegeAdmin]
     lookup_field = 'assignment_id'
+
+    def create(self, request, *args, **kwargs):
+        """
+        Handle both single (department_id) and bulk (department_ids) assignments.
+        
+        This handles duplicates gracefully by:
+        1. If active assignment exists: skip it.
+        2. If inactive assignment exists: re-activate it.
+        3. If no assignment exists: create it.
+        """
+        data = request.data.copy()
+        department_ids = data.get('department_ids', [])
+        
+        # If frontend sent singular department_id, use it
+        if not department_ids and 'department_id' in data:
+            department_ids = [data['department_id']]
+            
+        if not department_ids:
+            return Response(
+                {"department_id": ["This field is required."]}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        faculty_id = data.get('faculty_id')
+        if not faculty_id:
+            return Response(
+                {"faculty_id": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        created_assignments = []
+        errors = []
+        skipped = 0
+        
+        with transaction.atomic():
+            for dept_id in department_ids:
+                # Check if an assignment already exists for this faculty and department
+                existing = DepartmentAdminAssignment.objects.filter(
+                    faculty_id=faculty_id,
+                    department_id=dept_id
+                ).first()
+                
+                if existing:
+                    if existing.is_active:
+                        # Already active, just skip
+                        skipped += 1
+                        continue
+                    else:
+                        # Re-activate
+                        existing.is_active = True
+                        existing.assigned_by = self.request.user
+                        existing.save()
+                        created_assignments.append(self.get_serializer(existing).data)
+                        continue
+
+                # Normal creation flow
+                row_data = data.copy()
+                row_data['department_id'] = dept_id
+                
+                serializer = self.get_serializer(data=row_data)
+                if serializer.is_valid():
+                    assignment = serializer.save(assigned_by=self.request.user)
+                    created_assignments.append(serializer.data)
+                else:
+                    errors.append({
+                        "department_id": dept_id,
+                        "errors": serializer.errors
+                    })
+        
+        if errors:
+            # Rollback happens if we return 400
+            return Response(
+                {"message": "Validation failed for some departments", "errors": errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        return Response({
+            "status": "success",
+            "created_count": len(created_assignments),
+            "skipped_count": skipped,
+            "assignments": created_assignments
+        }, status=status.HTTP_201_CREATED)
     
     def perform_create(self, serializer):
         """
-        Override perform_create to automatically set assigned_by to current user.
-        
-        This ensures we always know which campus admin made each assignment.
+        Default perform_create - sets assigned_by to current user.
+        Note: The create() method above calls serializer.save() directly
+        to handle partial successes/failures, but this is kept for DRF consistency.
         """
         serializer.save(assigned_by=self.request.user)
 
@@ -932,7 +1019,7 @@ class RolesSummaryView(APIView):
     """
     permission_classes = [IsAuthenticated, IsCollegeAdmin]
 
-    def get(self):
+    def get(self, request):
         counts = User.objects.aggregate(
             total_students=Count('id', filter=Q(role='STUDENT')),
             total_faculty=Count('id', filter=Q(role__in=['FACULTY', 'ACADEMIC_COORDINATOR', 'accedemic_coordinator'])),

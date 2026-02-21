@@ -70,15 +70,60 @@ class AcademicClassCreateSerializer(serializers.Serializer):
 
         return data
 
-# =====================================================
-# FACULTY ALLOCATION SERIALIZER
-# =====================================================
+class AcademicClassViewSerializer(serializers.ModelSerializer):
+    section_name = serializers.CharField(source="section.name", read_only=True)
+    department_name = serializers.CharField(source="department.dept_name", read_only=True)
+    degree_name = serializers.CharField(source="degree.degree_name", read_only=True)
+
+    class Meta:
+        model = AcademicClass
+        fields = [
+            'class_id',
+            'school',
+            'degree',
+            'degree_name',
+            'department',
+            'department_name',
+            'semester',
+            'regulation',
+            'batch',
+            'academic_year',
+            'section',
+            'section_name',
+            'strength',
+            'status'
+        ]
 
 from rest_framework import serializers
-from .models import FacultyAllocation
+from .models import FacultyAllocation, VirtualSection
 from CourseConfiguration.models import Course
 from UserDataManagement.models import Faculty
 from .models import AcademicClass
+
+
+class VirtualSectionSerializer(serializers.ModelSerializer):
+    course_name = serializers.CharField(source="course.course_name", read_only=True)
+    course_code = serializers.CharField(source="course.course_code", read_only=True)
+    student_count = serializers.IntegerField(source="students.count", read_only=True)
+
+    class Meta:
+        model = VirtualSection
+        fields = [
+            'virtual_id',
+            'name',
+            'course',
+            'course_name',
+            'course_code',
+            'school',
+            'degree',
+            'department',
+            'semester',
+            'regulation',
+            'batch',
+            'academic_year',
+            'student_count',
+            'status'
+        ]
 
 
 class FacultyAllocationCreateSerializer(serializers.Serializer):
@@ -86,7 +131,7 @@ class FacultyAllocationCreateSerializer(serializers.Serializer):
     course_id = serializers.UUIDField()
 
     academic_class_id = serializers.UUIDField(required=False, allow_null=True)
-    # course_classroom_id will be added later when CBCS is built
+    virtual_section_id = serializers.UUIDField(required=False, allow_null=True)
 
     semester_id = serializers.UUIDField()
     academic_year = serializers.CharField(max_length=20)
@@ -95,13 +140,14 @@ class FacultyAllocationCreateSerializer(serializers.Serializer):
         faculty_id = data.get("faculty_id")
         course_id = data.get("course_id")
         academic_class_id = data.get("academic_class_id")
+        virtual_section_id = data.get("virtual_section_id")
         semester_id = data.get("semester_id")
         academic_year = data.get("academic_year")
 
-        # 🔒 Must provide academic_class for now
-        if not academic_class_id:
+        # 🔒 Must provide either academic_class OR virtual_section
+        if not academic_class_id and not virtual_section_id:
             raise serializers.ValidationError(
-                "Academic class must be provided."
+                "Either academic class or virtual section must be provided."
             )
 
         # 🔎 Validate faculty exists
@@ -116,30 +162,43 @@ class FacultyAllocationCreateSerializer(serializers.Serializer):
                 "Invalid or inactive course."
             )
 
-        # 🔎 Validate academic class exists
-        try:
-            academic_class = AcademicClass.objects.get(pk=academic_class_id)
-        except AcademicClass.DoesNotExist:
-            raise serializers.ValidationError(
-                "Academic class not found."
-            )
+        # 🔎 Validate academic class if provided
+        if academic_class_id:
+            try:
+                academic_class = AcademicClass.objects.get(pk=academic_class_id)
+                if str(academic_class.semester_id) != str(semester_id):
+                    raise serializers.ValidationError(
+                        "Course semester mismatch with academic class."
+                    )
+            except AcademicClass.DoesNotExist:
+                raise serializers.ValidationError(
+                    "Academic class not found."
+                )
 
-        # 🔎 Ensure course belongs to same semester
-        if str(academic_class.semester_id) != str(semester_id):
-            raise serializers.ValidationError(
-                "Course semester mismatch with academic class."
-            )
+        # 🔎 Validate virtual section if provided
+        if virtual_section_id:
+            try:
+                virtual_section = VirtualSection.objects.get(pk=virtual_section_id)
+                if str(virtual_section.semester_id) != str(semester_id):
+                    raise serializers.ValidationError(
+                        "Course semester mismatch with virtual section."
+                    )
+            except VirtualSection.DoesNotExist:
+                raise serializers.ValidationError(
+                    "Virtual section not found."
+                )
 
         # 🔎 Prevent duplicate allocation
         if FacultyAllocation.objects.filter(
             faculty_id=faculty_id,
             course_id=course_id,
             academic_class_id=academic_class_id,
+            virtual_section_id=virtual_section_id,
             semester_id=semester_id,
             academic_year=academic_year
         ).exists():
             raise serializers.ValidationError(
-                "Faculty already allocated for this course and class."
+                "Faculty already allocated for this course and class/section."
             )
 
         return data
@@ -153,6 +212,7 @@ class FacultyAllocationViewSerializer(serializers.ModelSerializer):
     faculty_name = serializers.CharField(source="faculty.faculty_name", read_only=True)
     course_name = serializers.CharField(source="course.course_name", read_only=True)
     class_section = serializers.CharField(source="academic_class.section.name", read_only=True)
+    virtual_section_name = serializers.CharField(source="virtual_section.name", read_only=True)
 
     class Meta:
         model = FacultyAllocation
@@ -164,6 +224,8 @@ class FacultyAllocationViewSerializer(serializers.ModelSerializer):
             "course_name",
             "academic_class",
             "class_section",
+            "virtual_section",
+            "virtual_section_name",
             "semester",
             "academic_year",
             "status"

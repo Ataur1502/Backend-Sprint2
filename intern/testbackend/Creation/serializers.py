@@ -166,4 +166,11 @@ class RegulationSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def get_end_year(self, obj):
-        return int(obj.batch.split('-')[1])
+        if obj.batch and '-' in obj.batch:
+            try:
+                parts = obj.batch.split('-')
+                if len(parts) > 1:
+                    return int(parts[1])
+            except (ValueError, IndexError):
+                pass
+        return None

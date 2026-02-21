@@ -61,16 +61,12 @@ class CourseBulkUploadAPIView(APIView):
             wb = openpyxl.load_workbook(file_obj)
             sheet = wb.active
             
-            # Assuming header row is at 1
-            headers = [cell.value for cell in sheet[1]]
+            # Match headers from user image
             required_headers = [
-                'Course Name', 'Course Code', 'Course Type', 'School Code', 
-                'Degree Code', 'Department Code', 'Regulation Code', 
-                'Batch', 'Credit Value', 'L', 'T', 'P', 'Category'
+                'Course Name', 'Course Short Name', 'Course Code', 'Course Type', 
+                'School Code', 'Degree Code', 'Department Code', 'Regulation Code', 
+                'Credit Value', 'L', 'T', 'P', 'Category'
             ]
-            
-            # Map headers to model fields or indices
-            # For simplicity, let's assume a strict order or map them
             
             courses_to_create = []
             errors = []
@@ -80,32 +76,40 @@ class CourseBulkUploadAPIView(APIView):
                     if not any(row): continue # Skip empty rows
                     
                     try:
-                        (name, code, c_type, s_code, d_code, dept_code, r_code, batch, credit, l, t, p, cat) = row
+                        # Unpack according to image attributes:
+                        # 1.Name, 2.ShortName, 3.Code, 4.Type, 5.School, 6.Degree, 7.Dept, 8.Reg, 9.Credits, 10.L, 11.T, 12.P, 13.Cat
+                        (name, short_name, code, c_type, s_code, d_code, dept_code, r_code, credit, l, t, p, cat) = row
                         
                         # Lookups
                         school = School.objects.get(school_code=s_code)
                         degree = Degree.objects.get(degree_code=d_code, school=school)
                         department = Department.objects.get(dept_code=dept_code, degree=degree)
-                        regulation = Regulation.objects.get(regulation_code=r_code, degree=degree, batch=batch)
                         
-                        if not regulation.is_active:
-                            errors.append(f"Row {row_idx}: Regulation {r_code} is not active for batch {batch}")
-                            continue
+                        # Regulation lookup (since Batch is missing, find active regulation by code)
+                        regulations = Regulation.objects.filter(regulation_code=r_code, degree=degree)
+                        if regulations.filter(is_active=True).exists():
+                             regulation = regulations.filter(is_active=True).first()
+                        else:
+                             regulation = regulations.first()
+
+                        if not regulation:
+                             errors.append(f"Row {row_idx}: Regulation {r_code} not found for degree {d_code}")
+                             continue
 
                         course_data = {
                             'course_name': name,
+                            'course_short_name': short_name,
                             'course_code': code,
-                            'course_type': c_type.upper(),
+                            'course_type': c_type.upper() if c_type else 'CORE',
                             'school': school,
                             'degree': degree,
                             'department': department,
                             'regulation': regulation,
-                            'batch': batch,
                             'credit_value': credit,
-                            'lecture_hours': l,
-                            'tutorial_hours': t,
-                            'practical_hours': p,
-                            'course_category': cat.upper(),
+                            'lecture_hours': l if l is not None else 0,
+                            'tutorial_hours': t if t is not None else 0,
+                            'practical_hours': p if p is not None else 0,
+                            'course_category': cat.upper() if cat else 'THEORY',
                             'status': True
                         }
                         
@@ -118,7 +122,6 @@ class CourseBulkUploadAPIView(APIView):
                     except School.DoesNotExist: errors.append(f"Row {row_idx}: School {s_code} not found")
                     except Degree.DoesNotExist: errors.append(f"Row {row_idx}: Degree {d_code} not found")
                     except Department.DoesNotExist: errors.append(f"Row {row_idx}: Department {dept_code} not found")
-                    except Regulation.DoesNotExist: errors.append(f"Row {row_idx}: Regulation {r_code} not found for batch {batch}")
                     except Exception as e: errors.append(f"Row {row_idx}: {str(e)}")
 
                 if errors:
@@ -139,31 +142,40 @@ from UserDataManagement.models import Student
 from Creation.models import Semester
 from django.db.models import Count
 
+from Creation.permissions import IsCollegeAdmin, IsAcademicCoordinator, IsCampusAdmin
+from rest_framework.permissions import IsAuthenticated
+
 class RegistrationWindowViewSet(viewsets.ModelViewSet):
     queryset = RegistrationWindow.objects.all()
     serializer_class = RegistrationWindowSerializer
-    permission_classes = [IsAuthenticated, IsCollegeAdmin]
+    permission_classes = [IsAuthenticated, IsCampusAdmin] # Admin or Coordinator
     lookup_field = 'window_id'
 
 class RegistrationMonitoringAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsCollegeAdmin]
+    permission_classes = [IsAuthenticated, IsCampusAdmin]
 
     def get(self, request, window_id):
         window = generics.get_object_or_404(RegistrationWindow, window_id=window_id)
         
-        # Total students in that Dept + Batch + Sem
-        total_students = Student.objects.filter(
+        # 1. Total students in that Dept + Batch + Sem + Regulation
+        all_students = Student.objects.filter(
             department=window.department,
             batch=window.batch,
-            semester=window.semester
-        ).count()
+            regulation=window.regulation,
+            semester=window.semester,
+            is_active=True
+        )
         
-        # Registered students
-        registered_count = StudentSelection.objects.filter(window=window).count()
+        # 2. Registered students
+        registered_selections = StudentSelection.objects.filter(window=window)
+        registered_student_ids = registered_selections.values_list('student_id', flat=True)
         
-        # Subject-wise counts
+        # 3. Categorization
+        registered_students_list = all_students.filter(student_id__in=registered_student_ids)
+        pending_students_list = all_students.exclude(student_id__in=registered_student_ids)
+        
+        # 4. Subject-wise counts
         subject_counts = []
-        # Combine major and elective for counting
         all_subjects = list(window.major_subjects.all()) + list(window.elective_subjects.all())
         
         for subject in all_subjects:
@@ -177,11 +189,58 @@ class RegistrationMonitoringAPIView(APIView):
         return Response({
             "window_details": RegistrationWindowSerializer(window).data,
             "statistics": {
-                "total_students": total_students,
-                "registered_students": registered_count,
-                "pending_students": total_students - registered_count,
+                "total_students": all_students.count(),
+                "registered_count": registered_students_list.count(),
+                "pending_count": pending_students_list.count(),
                 "subject_wise_counts": subject_counts
-            }
+            },
+            "registered_students": [
+                {"id": s.student_id, "name": s.student_name, "roll_no": s.roll_no} for s in registered_students_list
+            ],
+            "pending_students": [
+                {"id": s.student_id, "name": s.student_name, "roll_no": s.roll_no} for s in pending_students_list
+            ]
+        })
+
+class ManualRegistrationAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
+
+    def post(self, request):
+        window_id = request.data.get('window_id')
+        student_id = request.data.get('student_id')
+        course_ids = request.data.get('course_ids', [])
+
+        window = generics.get_object_or_404(RegistrationWindow, window_id=window_id)
+        student = generics.get_object_or_404(Student, student_id=student_id)
+
+        with transaction.atomic():
+            selection, created = StudentSelection.objects.get_or_create(
+                student=student,
+                window=window
+            )
+            selection.courses.set(course_ids)
+            selection.save()
+
+        return Response({
+            "message": f"Manual registration successful for {student.roll_no}",
+            "selection_id": selection.selection_id
+        }, status=status.HTTP_201_CREATED)
+
+class ExtendRegistrationAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
+
+    def post(self, request, window_id):
+        new_end_date = request.data.get('end_datetime')
+        if not new_end_date:
+            return Response({"error": "end_datetime is required"}, status=400)
+
+        window = generics.get_object_or_404(RegistrationWindow, window_id=window_id)
+        window.end_datetime = new_end_date
+        window.save()
+
+        return Response({
+            "message": "Registration window extended successfully",
+            "new_end_datetime": window.end_datetime
         })
 
 class StudentCourseRegistrationAPIView(APIView):

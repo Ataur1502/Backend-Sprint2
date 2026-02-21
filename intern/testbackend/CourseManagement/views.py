@@ -2,6 +2,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from Creation.permissions import IsAcademicCoordinator
+
 from django.db import transaction
 from django.http import HttpResponse
 import pandas as pd
@@ -12,6 +14,7 @@ from AcademicSetup.models import Section
 from .models import (
     AcademicClass, 
     AcademicClassStudent, 
+    VirtualSection,
     FacultyAllocation,
     Timetable,
 )
@@ -32,6 +35,8 @@ from .serializers import (
     DeptAdminStudentSerializer,
     DeptAdminAssignCoursesSerializer,
     AcademicClassCreateSerializer,
+    AcademicClassViewSerializer,
+    VirtualSectionSerializer,
     FacultyAllocationCreateSerializer,
     FacultyAllocationViewSerializer,
     TimetableCreateSerializer,
@@ -39,29 +44,7 @@ from .serializers import (
 )
 
 
-# =====================================================
-# 🔒 COMMON ROLE CHECK
-# =====================================================
-def ensure_department_admin(request):
-    """
-    Validates that the user is an authenticated Academic Coordinator
-    with an active department assignment.
-    
-    Returns: (success: bool, error_response: Response or None)
-    """
-    if not request.user.is_authenticated:
-        return False, Response(
-            {"detail": "Authentication required"},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
-
-    if request.user.role != 'ACADEMIC_COORDINATOR':
-        return False, Response(
-            {"detail": "Access denied. Academic Coordinator role required."},
-            status=status.HTTP_403_FORBIDDEN
-        )
-
-    return True, None
+# Role checks are now handled via permission_classes in each ViewSet/APIView.
 
 
 # =====================================================
@@ -78,12 +61,9 @@ class DeptAdminRegistrationSummaryAPIView(APIView):
         - registered_students: Students who have completed registration
         - unregistered_students: Students who haven't registered yet
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def get(self, request):
-        allowed, error = ensure_department_admin(request)
-        if not allowed:
-            return error
 
         faculty = getattr(request.user, 'faculty_profile', None)
 
@@ -124,8 +104,40 @@ class DeptAdminRegistrationSummaryAPIView(APIView):
         )
 
         registered_students_qs =  total_students_qs.filter(
-            course_selections__window=window
+            course_selections__window=window,
+            course_selections__is_locked=True
         ).distinct()
+
+        classes = AcademicClass.objects.filter(
+            department=assignment.department,
+            semester=window.semester,
+            batch=window.batch
+        )
+        
+        class_allocations = []
+        for cls in classes:
+            student_count = cls.students.count()
+            class_allocations.append({
+                "class_id": str(cls.class_id),
+                "section": cls.section.name,
+                "student_count": student_count,
+                "subjects": FacultyAllocation.objects.filter(academic_class=cls).values('course__course_name', 'faculty__faculty_name')
+            })
+
+        virtual_sections = VirtualSection.objects.filter(
+            department=assignment.department,
+            semester=window.semester,
+            batch=window.batch
+        )
+        
+        virtual_data = []
+        for vs in virtual_sections:
+            virtual_data.append({
+                "virtual_id": str(vs.virtual_id),
+                "name": vs.name,
+                "course_name": vs.course.course_name,
+                "student_count": vs.students.count()
+            })
 
         return Response({
             "window_id": str(window.window_id),
@@ -133,7 +145,9 @@ class DeptAdminRegistrationSummaryAPIView(APIView):
             "registered_students": registered_students_qs.count(),
             "unregistered_students": (
                 total_students_qs.count() - registered_students_qs.count()
-            )
+            ),
+            "class_allocations": class_allocations,
+            "virtual_sections": virtual_data
         })
 
 
@@ -147,12 +161,9 @@ class DeptAdminUnregisteredStudentsAPIView(APIView):
     
     Response: List of student objects with basic information.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def get(self, request):
-        allowed, error = ensure_department_admin(request)
-        if not allowed:
-            return error
 
         faculty = getattr(request.user, 'faculty_profile', None)
 
@@ -212,13 +223,10 @@ class DeptAdminAssignCoursesAPIView(APIView):
         - student_id: UUID of the student
         - course_ids: List of course UUIDs to assign
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     @transaction.atomic
     def post(self, request):
-        allowed, error = ensure_department_admin(request)
-        if not allowed:
-            return error
 
         serializer = DeptAdminAssignCoursesSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -297,17 +305,10 @@ class DeptAdminAssignCoursesAPIView(APIView):
 # =====================================================
 
 class AcademicClassAllocationAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     @transaction.atomic
     def post(self, request):
-
-        # 🔒 Ensure Department Admin
-        if request.user.role != 'ACADEMIC_COORDINATOR':
-            return Response(
-                {"error": "Access denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         serializer = AcademicClassCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -399,20 +400,43 @@ class AcademicClassAllocationAPIView(APIView):
         )
 
 # =====================================================
+# ACADEMIC CLASS LIST API
+# =====================================================
+
+class AcademicClassListAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
+
+    def get(self, request):
+        department_id = request.query_params.get("department_id")
+        semester_id = request.query_params.get("semester_id")
+        regulation_id = request.query_params.get("regulation_id")
+        batch = request.query_params.get("batch")
+        academic_year = request.query_params.get("academic_year")
+
+        classes = AcademicClass.objects.all()
+
+        if department_id:
+            classes = classes.filter(department_id=department_id)
+        if semester_id:
+            classes = classes.filter(semester_id=semester_id)
+        if regulation_id:
+            classes = classes.filter(regulation_id=regulation_id)
+        if batch:
+            classes = classes.filter(batch=batch)
+        if academic_year:
+            classes = classes.filter(academic_year=academic_year)
+
+        serializer = AcademicClassViewSerializer(classes, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+# =====================================================
 # CLASS ALLOCATION PREVIEW (NO DB WRITE)
 # =====================================================
 
 class AcademicClassAllocationPreviewAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def post(self, request):
-
-        # 🔒 Ensure Department Admin
-        if request.user.role != 'ACADEMIC_COORDINATOR':
-            return Response(
-                {"error": "Access denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         serializer = AcademicClassCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -478,20 +502,83 @@ class AcademicClassAllocationPreviewAPIView(APIView):
         })
 
 # =====================================================
+# VIRTUAL SECTION CREATION (CBCS / ELECTIVE)
+# =====================================================
+
+class VirtualSectionCreateAPIView(APIView):
+    """
+    Creates a Virtual Section for a specific course and assigns students.
+    Useful for Elective subjects where students from different sections group together.
+    """
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = VirtualSectionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        students_ids = request.data.get('student_ids', [])
+        
+        if not students_ids:
+            # Auto-group based on registrations if no student_ids provided
+            students_ids = StudentSelection.objects.filter(
+                window__semester=data['semester'],
+                window__batch=data['batch'],
+                courses=data['course']
+            ).values_list('student_id', flat=True)
+
+        if not students_ids:
+            return Response(
+                {"error": "No students found for this course registration"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        virtual_section = VirtualSection.objects.create(**data)
+        virtual_section.students.set(students_ids)
+        
+        return Response(
+            {
+                "message": "Virtual Section created successfully",
+                "virtual_id": str(virtual_section.virtual_id),
+                "student_count": virtual_section.students.count()
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+# =====================================================
+# VIRTUAL SECTION LIST API
+# =====================================================
+
+class VirtualSectionListAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
+
+    def get(self, request):
+        course_id = request.query_params.get("course_id")
+        semester_id = request.query_params.get("semester_id")
+        academic_year = request.query_params.get("academic_year")
+
+        sections = VirtualSection.objects.all()
+
+        if course_id:
+            sections = sections.filter(course_id=course_id)
+        if semester_id:
+            sections = sections.filter(semester_id=semester_id)
+        if academic_year:
+            sections = sections.filter(academic_year=academic_year)
+
+        serializer = VirtualSectionSerializer(sections, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# =====================================================
 # FACULTY ALLOCATION API
 # =====================================================
 
 class FacultyAllocationAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def post(self, request):
-
-        # 🔒 Ensure Department Admin role
-        if request.user.role != 'ACADEMIC_COORDINATOR':
-            return Response(
-                {"error": "Access denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         serializer = FacultyAllocationCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -501,7 +588,8 @@ class FacultyAllocationAPIView(APIView):
         allocation = FacultyAllocation.objects.create(
             faculty_id=data["faculty_id"],
             course_id=data["course_id"],
-            academic_class_id=data["academic_class_id"],
+            academic_class_id=data.get("academic_class_id"),
+            virtual_section_id=data.get("virtual_section_id"),
             semester_id=data["semester_id"],
             academic_year=data["academic_year"],
             status="ACTIVE"
@@ -520,17 +608,12 @@ class FacultyAllocationAPIView(APIView):
 # =====================================================
 
 class FacultyAllocationListAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def get(self, request):
 
-        if request.user.role != 'ACADEMIC_COORDINATOR':
-            return Response(
-                {"error": "Access denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
         academic_class_id = request.query_params.get("academic_class_id")
+        virtual_section_id = request.query_params.get("virtual_section_id")
         semester_id = request.query_params.get("semester_id")
         academic_year = request.query_params.get("academic_year")
 
@@ -538,6 +621,9 @@ class FacultyAllocationListAPIView(APIView):
 
         if academic_class_id:
             allocations = allocations.filter(academic_class_id=academic_class_id)
+        
+        if virtual_section_id:
+            allocations = allocations.filter(virtual_section_id=virtual_section_id)
 
         if semester_id:
             allocations = allocations.filter(semester_id=semester_id)
@@ -555,16 +641,9 @@ class FacultyAllocationListAPIView(APIView):
 # =====================================================
 
 class TimetableCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def post(self, request):
-
-        # 🔒 Ensure Department Admin
-        if request.user.role != 'ACADEMIC_COORDINATOR':
-            return Response(
-                {"error": "Access denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         serializer = TimetableCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -572,7 +651,8 @@ class TimetableCreateAPIView(APIView):
         data = serializer.validated_data
 
         timetable = Timetable.objects.create(
-            academic_class_id=data["academic_class_id"],
+            academic_class_id=data.get("academic_class_id"),
+            virtual_section_id=data.get("virtual_section_id"),
             faculty_allocation_id=data["faculty_allocation_id"],
             day_of_week=data["day_of_week"],
             start_time=data["start_time"],
@@ -594,15 +674,9 @@ class TimetableCreateAPIView(APIView):
 # =====================================================
 
 class TimetableListAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def get(self, request):
-
-        if request.user.role != 'ACADEMIC_COORDINATOR':
-            return Response(
-                {"error": "Access denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         academic_class_id = request.query_params.get("academic_class_id")
         academic_year = request.query_params.get("academic_year")
@@ -626,12 +700,9 @@ class TimetableListAPIView(APIView):
 # BULK IMPORT TEMPLATES (COURSE ONLY)
 # =====================================================
 class BulkImportTemplateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
 
     def get(self, request, entity_type):
-        allowed, error = ensure_department_admin(request)
-        if not allowed:
-            return error
 
         if entity_type == 'course':
             columns = [
@@ -692,15 +763,11 @@ class BulkImportTemplateView(APIView):
 # BULK IMPORT UPLOAD (COURSE ONLY)
 # =====================================================
 class BulkImportUploadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAcademicCoordinator]
     parser_classes = [MultiPartParser, FormParser]
 
     @transaction.atomic
     def post(self, request, entity_type):
-        
-        allowed, error = ensure_department_admin(request)
-        if not allowed:
-            return error
 
         if entity_type != 'course':
             return Response({"error": "Invalid entity type. Use: course"}, status=status.HTTP_400_BAD_REQUEST)

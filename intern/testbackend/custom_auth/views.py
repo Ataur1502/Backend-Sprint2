@@ -73,7 +73,7 @@ class GoogleLogin(SocialLoginView):
         })
 
 # Roles that require Multi-Factor Authentication
-MFA_ALLOWED_ROLES = ["COLLEGE_ADMIN", "ACADEMIC_COORDINATOR", "college_admin", "accedemic_coordinator"]
+MFA_ALLOWED_ROLES = ["COLLEGE_ADMIN", "college_admin", "ACADEMIC_COORDINATOR", "academic_coordinator"]
 
 class LoginView(APIView):
     """Unified login endpoint supporting username or email.
@@ -89,12 +89,21 @@ class LoginView(APIView):
         username = request.data.get('username') or request.data.get('email')
         password = request.data.get('password')
 
+        print(f"DEBUG LOGIN Attempt: username={username}, password_len={len(password) if password else 0}")
+
         if not username or not password:
             return Response({'detail': 'Username/email and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         user = User.objects.filter(Q(username=username) | Q(email=username)).first()
-        if not user or not user.check_password(password):
+        if not user:
+            print(f"DEBUG LOGIN: User not found for {username}")
             return Response({'detail': 'Invalid username/email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+            
+        if not user.check_password(password):
+            print(f"DEBUG LOGIN: Password check failed for {username}")
+            return Response({'detail': 'Invalid username/email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        print(f"DEBUG LOGIN: SUCCESS for {username}, role={user.role}")
 
         if user.role in MFA_ALLOWED_ROLES:
             # Try Duo Push
