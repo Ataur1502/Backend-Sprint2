@@ -344,9 +344,8 @@ class AcademicClassAllocationAPIView(APIView):
 
         # 3️⃣ Fetch sections
         sections = Section.objects.filter(
-            status='ACTIVE'
-        ).order_by("id")
-
+            is_active=True
+        ).order_by("section_id")
         if sections.count() < number_of_classes:
             return Response(
                 {"error": "Not enough active sections available"},
@@ -385,7 +384,7 @@ class AcademicClassAllocationAPIView(APIView):
 
             created_classes.append({
                 "class_id": str(academic_class.class_id),
-                "section": section.id,
+                "section": str(section.section_id),
                 "student_count": chunk_students.count()
             })
 
@@ -470,8 +469,8 @@ class AcademicClassAllocationPreviewAPIView(APIView):
         number_of_classes = ceil(total_students / strength)
 
         sections = Section.objects.filter(
-            status="ACTIVE"
-        ).order_by("id")
+            is_active=True
+        ).order_by("name")
 
         if sections.count() < number_of_classes:
             return Response(

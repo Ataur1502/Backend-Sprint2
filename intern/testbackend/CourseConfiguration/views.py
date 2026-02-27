@@ -291,7 +291,18 @@ class StudentCourseRegistrationAPIView(APIView):
                 student=student,
                 window=window
             )
+
+            # 🚨 Prevent re-registration
+            if selection.is_locked:
+                return Response(
+                    {"error": "Registration already submitted."},
+                    status=400
+                )
+
             selection.courses.set(selected_course_ids)
+            selection.is_locked = True  # ✅ Auto lock immediately
             selection.save()
-            
-        return Response({"message": "Registration successful", "selection_id": selection.selection_id}, status=status.HTTP_201_CREATED)
+            return Response(
+                {"message": "Registration successful", "selection_id": selection.selection_id},
+                status=status.HTTP_201_CREATED
+            )

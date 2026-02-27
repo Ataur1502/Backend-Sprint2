@@ -106,7 +106,7 @@ class StudentSelection(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='course_selections')
     window = models.ForeignKey(RegistrationWindow, on_delete=models.CASCADE, related_name='student_selections')
     courses = models.ManyToManyField(Course, related_name='selected_by_students')
-    
+    is_locked = models.BooleanField(default=False)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

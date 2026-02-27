@@ -20,7 +20,7 @@ urlpatterns = [
     # Course Registration Management for Academic Coordinators
     path('registration/summary/', DeptAdminRegistrationSummaryAPIView.as_view(), name='registration-summary'),
     path('registration/unregistered/', DeptAdminUnregisteredStudentsAPIView.as_view(), name='unregistered-students'),
-    path('registration/assign/', DeptAdminAssignCoursesAPIView.as_view(), name='assign-courses'),
+    path('registration/assign/', DeptAdminAssignCoursesAPIView.as_view(), name='assign-courses'),   #Need to test
     path('academic/class-allocation/', AcademicClassAllocationAPIView.as_view(),name='academic-class-allocation'),
     path('academic/class-allocation/list/', AcademicClassListAPIView.as_view(), name='academic-class-list'),
     path('academic/class-allocation/preview/', AcademicClassAllocationPreviewAPIView.as_view(), name='academic-class-allocation-preview'),
